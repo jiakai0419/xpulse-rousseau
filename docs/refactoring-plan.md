@@ -151,6 +151,7 @@ npm run test:coverage
 - Reader link rules: X-like link normalization, quote/media/preview treatment, and hidden-link text cleanup moved to `public/reader/linkRules.js` with unit coverage.
 - Reader media rules: X media image URLs, video variant selection, gallery ratios, single-media sizing, and duration formatting moved to `public/reader/mediaRules.js` with unit coverage.
 - Reader status helpers: usage receipt rendering, per-run usage grouping, Pulse progress labels, and compact model status moved to `public/reader/status.js` with unit coverage.
+- Reader source/auth helpers: Online/Offline source display, X auth sidebar display state, and shared avatar markup moved to `public/reader/sourceStatus.js` with unit coverage.
 
 ## Not Yet Approved
 

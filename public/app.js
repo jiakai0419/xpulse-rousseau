@@ -1,5 +1,4 @@
 import {
-  avatarLabel,
   displayText,
   escapeHtml,
   formatDate,
@@ -32,6 +31,13 @@ import {
   proxiedVideoUrl,
   singleMediaWidth,
 } from "./reader/mediaRules.js";
+import {
+  avatarMarkup,
+  nextSelectedSource,
+  sourceToggleDisplay,
+  xAuthAvatarDisplay,
+  xAuthStatusDisplay,
+} from "./reader/sourceStatus.js";
 import {
   aiModelStatus,
   progressDetail,
@@ -139,27 +145,19 @@ function renderNotice(message, detail = "") {
 }
 
 function renderAvatar(author) {
-  if (author.profileImageUrl) {
-    return `<img class="avatar" src="${escapeHtml(author.profileImageUrl)}" alt="" loading="lazy" />`;
-  }
-
-  return `<div class="avatar">${escapeHtml(avatarLabel(author))}</div>`;
+  return avatarMarkup(author);
 }
 
 function setSelectedSource(source) {
-  if (source === "x" && !xAuthState.xReady) {
-    selectedSource = "replay";
-  } else {
-    selectedSource = source;
-  }
+  selectedSource = nextSelectedSource(source, xAuthState.xReady);
 
-  const isOnline = selectedSource === "x";
-  sourceToggleButton.classList.toggle("online", isOnline);
-  sourceToggleButton.classList.toggle("offline", !isOnline);
-  sourceToggleButton.setAttribute("aria-pressed", String(isOnline));
-  sourceToggleButton.setAttribute("aria-label", `Pulse source: ${isOnline ? "Online" : "Offline"}`);
-  sourceToggleButton.title = isOnline ? "Online: live X source" : "Offline: local replay source";
-  sourceToggleLabelNode.textContent = isOnline ? "Online" : "Offline";
+  const display = sourceToggleDisplay(selectedSource);
+  sourceToggleButton.classList.toggle("online", display.isOnline);
+  sourceToggleButton.classList.toggle("offline", !display.isOnline);
+  sourceToggleButton.setAttribute("aria-pressed", display.ariaPressed);
+  sourceToggleButton.setAttribute("aria-label", display.ariaLabel);
+  sourceToggleButton.title = display.title;
+  sourceToggleLabelNode.textContent = display.label;
 }
 
 function toggleSelectedSource() {
@@ -178,66 +176,37 @@ function toggleSelectedSource() {
 }
 
 function renderXAuthAvatar(user) {
-  if (!user) {
-    xAuthAvatarNode.hidden = true;
-    xAuthAvatarNode.innerHTML = "";
-    xAuthAvatarNode.textContent = "";
-    return;
+  const display = xAuthAvatarDisplay(user);
+
+  xAuthAvatarNode.hidden = display.hidden;
+  xAuthAvatarNode.textContent = "";
+  xAuthAvatarNode.innerHTML = display.html;
+
+  if (!display.html) {
+    xAuthAvatarNode.textContent = display.text;
   }
-
-  xAuthAvatarNode.hidden = false;
-
-  if (user.profileImageUrl) {
-    xAuthAvatarNode.textContent = "";
-    xAuthAvatarNode.innerHTML = `<img src="${escapeHtml(user.profileImageUrl)}" alt="" loading="lazy" />`;
-    return;
-  }
-
-  xAuthAvatarNode.innerHTML = "";
-  xAuthAvatarNode.textContent = avatarLabel(user);
 }
 
 function renderXAuthStatus(state) {
   xAuthState = state;
+  const display = xAuthStatusDisplay(state);
   xAuthButton.textContent = "Connect";
   xAuthButton.removeAttribute("title");
   xAuthButton.setAttribute("aria-label", "Connect X");
 
-  if (!state.configured) {
-    renderXAuthAvatar();
-    xAuthStatusNode.textContent = "X not configured";
-    xAuthButton.hidden = true;
-    xAuthButton.classList.add("disabled");
-    xAuthButton.setAttribute("aria-disabled", "true");
-    setSelectedSource("replay");
-    return;
-  }
+  renderXAuthAvatar(display.avatarUser);
+  xAuthStatusNode.textContent = display.statusText;
+  xAuthButton.hidden = display.connectHidden;
 
-  if (state.authenticated && state.user) {
-    renderXAuthAvatar(state.user);
-    xAuthStatusNode.textContent = `@${state.user.username}`;
-    xAuthButton.hidden = true;
-    xAuthButton.classList.add("disabled");
-    xAuthButton.setAttribute("aria-disabled", "true");
-  } else if (state.manualCredentials) {
-    renderXAuthAvatar();
-    xAuthStatusNode.textContent = "Manual X token";
-    xAuthButton.hidden = true;
+  if (display.connectDisabled) {
     xAuthButton.classList.add("disabled");
     xAuthButton.setAttribute("aria-disabled", "true");
   } else {
-    renderXAuthAvatar();
-    xAuthStatusNode.textContent = "X not connected";
-    xAuthButton.hidden = false;
     xAuthButton.classList.remove("disabled");
     xAuthButton.removeAttribute("aria-disabled");
   }
 
-  if (state.xReady) {
-    setSelectedSource("x");
-  } else {
-    setSelectedSource("replay");
-  }
+  setSelectedSource(display.selectedSource);
 }
 
 function renderSignal(score) {
