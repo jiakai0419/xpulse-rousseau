@@ -150,6 +150,11 @@ activemq-data/
 # Environments
 .env
 .envrc
+.data/
+node_modules/
+.playwright/
+playwright-report/
+test-results/
 .venv
 env/
 venv/
