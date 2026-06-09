@@ -137,6 +137,7 @@ Scoring and translation share `OPENAI_MODEL` by default. To lower OpenAI cost du
 - [X OAuth setup](docs/integrations/x-oauth.md)
 - [Testing strategy](docs/testing.md)
 - [Test coverage matrix](docs/test-coverage-matrix.md)
+- [Refactoring plan](docs/refactoring-plan.md)
 - [Usage design](docs/usage.md)
 - [Run trace design](docs/run-trace.md)
 - [Online Pulse state](docs/online-pulse-state.md)
