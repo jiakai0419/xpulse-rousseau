@@ -15,6 +15,7 @@
 - Raw X snapshot recording for live timeline pages.
 - Output shape for selected posts.
 - Replay from saved X-derived run/trace data.
+- Pulse job lifecycle: one running job at a time, progress preservation, commit ordering, failed-job reporting, and reader-safe job responses.
 
 ## Commands
 

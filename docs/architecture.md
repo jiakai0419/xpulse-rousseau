@@ -55,6 +55,7 @@ flowchart LR
 - `src/services/trace/`: structured run evidence.
 - `src/services/storage/`: persistence abstraction.
 - `src/server/`: local HTTP server and API routes.
+- `src/server/refreshJobs.ts`: in-memory Pulse job state, progress updates, job response shaping, and completed-run usage decoration.
 - `public/`: browser UI.
 - `tests/`: unit tests and test helpers.
 
@@ -76,6 +77,8 @@ flowchart LR
 14. The browser polls the refresh job to show stage, model, processed item counts, and the refresh action's usage receipt.
 
 Refresh jobs are an in-memory recoverability layer for the current server process. The browser stores the active job id while Pulse is running and reconnects after a page refresh. If the browser loses that id, it asks for the latest running job. If Pulse is clicked again while a job is already running, the server returns the running job instead of starting a second X/OpenAI refresh.
+
+The HTTP server owns routing and dependency wiring. `RefreshJobStore` owns job lifecycle rules: one running job at a time, progress replacement, completed/failed state, commit-after-run ordering, and response shaping that omits full trace data from reader-facing job responses.
 
 ## Replay Data Flow
 
