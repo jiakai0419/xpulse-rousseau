@@ -1,3 +1,15 @@
+import {
+  avatarLabel,
+  cleanTextSpacing,
+  displayText,
+  escapeHtml,
+  formatDate,
+  formatElapsed,
+  formatMetric,
+  formatTokens,
+  plural,
+} from "./reader/format.js";
+
 const refreshButton = document.querySelector("#refresh-button");
 const statusNode = document.querySelector("#status");
 const usagePanelNode = document.querySelector("#usage-panel");
@@ -57,25 +69,6 @@ const progressLabels = {
   completed: "Done",
   failed: "Needs attention",
 };
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function decodeEntities(value) {
-  const textarea = document.createElement("textarea");
-  textarea.innerHTML = String(value ?? "");
-  return textarea.value;
-}
-
-function displayText(value) {
-  return escapeHtml(decodeEntities(value));
-}
 
 function rawUrlsFromText(text) {
   return Array.from(String(text ?? "").matchAll(/https?:\/\/[^\s<>"']+/g), (match) => match[0].replace(/[),.;!?]+$/, ""));
@@ -142,67 +135,6 @@ function repostContext(post) {
       <span>${escapeHtml(post.author.name)} reposted</span>
     </div>
   `;
-}
-
-function cleanTextSpacing(text) {
-  return String(text ?? "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
-}
-
-function formatDate(value) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function formatElapsed(milliseconds) {
-  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-
-  if (minutes === 0) {
-    return `${seconds}s`;
-  }
-
-  return `${minutes}:${String(remainder).padStart(2, "0")}`;
-}
-
-function avatarLabel(author) {
-  return (author.name || author.username || "?").trim().slice(0, 1).toUpperCase();
-}
-
-function formatMetric(value) {
-  if (!value) {
-    return "0";
-  }
-
-  return new Intl.NumberFormat("en", {
-    notation: value >= 10000 ? "compact" : "standard",
-    maximumFractionDigits: 1,
-  }).format(value);
-}
-
-function formatTokens(value) {
-  return new Intl.NumberFormat("en", {
-    notation: value >= 10000 ? "compact" : "standard",
-    maximumFractionDigits: 1,
-  }).format(value ?? 0);
-}
-
-function plural(value, singular) {
-  return `${value} ${singular}${value === 1 ? "" : "s"}`;
 }
 
 function usageLabel(record) {
