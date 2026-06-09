@@ -1,6 +1,5 @@
 import {
   avatarLabel,
-  cleanTextSpacing,
   displayText,
   escapeHtml,
   formatDate,
@@ -9,6 +8,21 @@ import {
   formatTokens,
   plural,
 } from "./reader/format.js";
+import {
+  findTokenRanges,
+  hasUsefulDisplayUrl,
+  isReferencedStatusLink,
+  linkAppearsInText,
+  linkDisplayLabel,
+  linkDomain,
+  linkHref,
+  linkPreviewImage,
+  linkTokens,
+  linkTreatment,
+  normalizedPostLinks,
+  textWithoutHiddenPostLinks,
+  textWithoutPostLinks,
+} from "./reader/linkRules.js";
 
 const refreshButton = document.querySelector("#refresh-button");
 const statusNode = document.querySelector("#status");
@@ -69,52 +83,6 @@ const progressLabels = {
   completed: "Done",
   failed: "Needs attention",
 };
-
-function rawUrlsFromText(text) {
-  return Array.from(String(text ?? "").matchAll(/https?:\/\/[^\s<>"']+/g), (match) => match[0].replace(/[),.;!?]+$/, ""));
-}
-
-function normalizedPostLinks(post) {
-  const explicitLinks = post.links ?? [];
-  const dedupedExplicitLinks = [];
-  const explicitKeys = new Set();
-
-  for (const link of explicitLinks) {
-    const key = `${link.url ?? ""}|${link.expandedUrl ?? ""}|${link.displayUrl ?? ""}|${link.unwoundUrl ?? ""}`;
-
-    if (explicitKeys.has(key)) {
-      continue;
-    }
-
-    explicitKeys.add(key);
-    dedupedExplicitLinks.push(link);
-  }
-
-  const seen = new Set(dedupedExplicitLinks.flatMap((link) => [link.url, link.expandedUrl, link.unwoundUrl].filter(Boolean)));
-  const fallbackLinks = rawUrlsFromText(post.text)
-    .filter((url) => !seen.has(url))
-    .map((url) => ({ url }));
-
-  return [...dedupedExplicitLinks, ...fallbackLinks];
-}
-
-function textWithoutPostLinks(text, post) {
-  let output = String(text ?? "");
-  const urls = new Set([
-    ...normalizedPostLinks(post).flatMap((link) => [link.url, link.expandedUrl, link.unwoundUrl].filter(Boolean)),
-    ...rawUrlsFromText(output).filter((url) => url.includes("://t.co/")),
-  ]);
-
-  for (const url of urls) {
-    output = output.replaceAll(url, "");
-  }
-
-  return output
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
-}
 
 function readerDisplayPost(post) {
   if (post?.referencedPostType === "retweeted" && post.referencedPost) {
@@ -732,163 +700,6 @@ function renderPostMedia(post) {
   const gridStyle = gridStyles.length ? ` style="${escapeHtml(gridStyles.join("; "))}"` : "";
 
   return `<div class="${escapeHtml(gridClasses)}"${gridStyle}>${items.join("")}</div>`;
-}
-
-function linkHref(link) {
-  return link.unwoundUrl ?? link.expandedUrl ?? link.url;
-}
-
-function linkDomain(link) {
-  try {
-    return new URL(linkHref(link)).hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-}
-
-function isTcoUrl(value) {
-  try {
-    return new URL(value).hostname.replace(/^www\./, "").toLowerCase() === "t.co";
-  } catch {
-    return false;
-  }
-}
-
-function hasUsefulDisplayUrl(link) {
-  const displayUrl = link.displayUrl?.trim();
-
-  if (!displayUrl) {
-    return false;
-  }
-
-  return !displayUrl.toLowerCase().startsWith("t.co/");
-}
-
-function linkPreviewImage(link) {
-  const images = link.preview?.images ?? [];
-
-  return images
-    .filter((image) => image.url)
-    .sort((a, b) => ((b.width ?? 0) * (b.height ?? 0)) - ((a.width ?? 0) * (a.height ?? 0)))[0];
-}
-
-function hasUsefulLinkPreview(link) {
-  return Boolean(linkPreviewImage(link) || link.preview?.title || link.preview?.description);
-}
-
-function linkDisplayLabel(link) {
-  const displayUrl = link.displayUrl?.trim();
-
-  if (displayUrl) {
-    return displayUrl;
-  }
-
-  try {
-    const url = new URL(linkHref(link));
-    return `${url.hostname.replace(/^www\./, "")}${url.pathname}`.replace(/\/$/, "");
-  } catch {
-    return linkHref(link);
-  }
-}
-
-function isMediaLink(link) {
-  if (link.mediaKey) {
-    return true;
-  }
-
-  const value = `${link.displayUrl ?? ""} ${link.expandedUrl ?? ""} ${link.unwoundUrl ?? ""} ${link.url ?? ""}`.toLowerCase();
-
-  return value.includes("pic.x.com") || value.includes("/photo/") || value.includes("/video/") || value.includes("pbs.twimg.com/media");
-}
-
-function isXStatusLink(link) {
-  try {
-    const url = new URL(linkHref(link));
-    const host = url.hostname.replace(/^www\./, "").toLowerCase();
-
-    return (host === "x.com" || host === "twitter.com") && /\/status\/\d+/.test(url.pathname);
-  } catch {
-    return false;
-  }
-}
-
-function isReferencedStatusLink(post, link) {
-  if (isMediaLink(link)) {
-    return false;
-  }
-
-  if (post.referencedPostType !== "quoted") {
-    return false;
-  }
-
-  if (post.referencedPost?.url && linkHref(link).startsWith(post.referencedPost.url)) {
-    return true;
-  }
-
-  return isXStatusLink(link);
-}
-
-function linkTokens(link) {
-  return Array.from(new Set([link.url, link.expandedUrl, link.unwoundUrl].filter(Boolean)));
-}
-
-function linkTreatment(post, link) {
-  if (post.media?.length && isMediaLink(link)) {
-    return "media";
-  }
-
-  if (isReferencedStatusLink(post, link)) {
-    return "quote";
-  }
-
-  if (shouldRenderPreviewCard(post, link)) {
-    return "preview";
-  }
-
-  return "inline";
-}
-
-function shouldRenderPreviewCard(post, link) {
-  if (!hasUsefulLinkPreview(link)) {
-    return false;
-  }
-
-  if (post.media?.length) {
-    return false;
-  }
-
-  return true;
-}
-
-function textWithoutHiddenPostLinks(text, post) {
-  let output = String(text ?? "");
-  const hiddenUrls = new Set(
-    normalizedPostLinks(post)
-      .filter((link) => linkTreatment(post, link) !== "inline")
-      .flatMap(linkTokens),
-  );
-
-  for (const url of hiddenUrls) {
-    output = output.replaceAll(url, "");
-  }
-
-  return cleanTextSpacing(output);
-}
-
-function linkAppearsInText(text, link) {
-  return linkTokens(link).some((token) => String(text ?? "").includes(token));
-}
-
-function findTokenRanges(text, token) {
-  const ranges = [];
-  let start = text.indexOf(token);
-
-  while (start !== -1) {
-    ranges.push({ start, end: start + token.length });
-    start = text.indexOf(token, start + token.length);
-  }
-
-  return ranges;
 }
 
 function renderInlineLink(link) {
