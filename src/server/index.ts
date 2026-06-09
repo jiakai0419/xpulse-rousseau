@@ -13,12 +13,12 @@ import { FileLinkPreviewCacheRepository } from "../services/linkPreview/cache.ts
 import { FileSeenPostRepository } from "../services/seen/seenLedger.ts";
 import { FileOpenAICacheRepository } from "../services/openai/cache.ts";
 import { FileRunRepository } from "../services/storage/fileRunRepository.ts";
-import { createRefreshUsageReceipt, refreshReceiptUsage } from "../services/usage/receipts.ts";
 import { buildXOAuthConfig, createOAuthStart, exchangeAuthorizationCode, type PendingOAuthStore } from "../services/x/oauth.ts";
 import { FileXRawSnapshotRepository } from "../services/x/rawSnapshotStore.ts";
 import { FileTimelineCursorRepository } from "../services/x/timelineCursor.ts";
 import { FileXTokenStore } from "../services/x/tokenStore.ts";
 import { loadDotEnv } from "./env.ts";
+import { decorateRunUsage, RefreshJobStore, responseJob } from "./refreshJobs.ts";
 
 loadDotEnv();
 
@@ -30,22 +30,11 @@ const openAICache = new FileOpenAICacheRepository();
 const linkPreviewCache = new FileLinkPreviewCacheRepository();
 const xRawSnapshotRepository = new FileXRawSnapshotRepository();
 const pendingXOAuth: PendingOAuthStore = new Map();
+const refreshJobs = new RefreshJobStore();
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? "127.0.0.1";
 const rootDir = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const publicDir = join(rootDir, "public");
-
-type RefreshJob = {
-  id: string;
-  source: TimelineSource;
-  status: "running" | "completed" | "failed";
-  createdAt: string;
-  progress: RefreshProgress;
-  run?: RefreshRun;
-  error?: string;
-};
-
-const refreshJobs = new Map<string, RefreshJob>();
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -90,49 +79,8 @@ function prunePendingOAuth(store: PendingOAuthStore, now = Date.now()): void {
   }
 }
 
-function createProgress(progress: Partial<RefreshProgress> = {}): RefreshProgress {
-  return {
-    stage: progress.stage ?? "starting",
-    label: progress.label ?? "Preparing Pulse",
-    detail: progress.detail ?? "Waiting for the server to start",
-    processedItems: progress.processedItems,
-    totalItems: progress.totalItems,
-    model: progress.model,
-    usage: progress.usage ?? [],
-    updatedAt: new Date().toISOString(),
-  };
-}
-
 function openAIKey(): string | undefined {
   return process.env.OPENAI_API_KEY?.startsWith("sk-") ? process.env.OPENAI_API_KEY : undefined;
-}
-
-function decorateRunUsage(run: RefreshRun): RefreshRun {
-  const sourceUsage = run.usage;
-  const refreshLines = refreshReceiptUsage(sourceUsage);
-  const { trace: _trace, ...readerRun } = run;
-
-  return {
-    ...readerRun,
-    usage: refreshLines,
-    usageReceipt: createRefreshUsageReceipt({
-      runId: run.id,
-      createdAt: run.createdAt,
-      records: sourceUsage,
-    }),
-  };
-}
-
-function responseJob(job: RefreshJob): RefreshJob {
-  return job.run ? { ...job, run: decorateRunUsage(job.run) } : job;
-}
-
-function latestRefreshJob(): RefreshJob | undefined {
-  return Array.from(refreshJobs.values()).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
-}
-
-function runningRefreshJob(): RefreshJob | undefined {
-  return Array.from(refreshJobs.values()).find((job) => job.status === "running");
 }
 
 function requestedSource(source: unknown): TimelineSource {
@@ -149,63 +97,32 @@ async function runReplayRefresh(now = new Date()): Promise<RefreshRun> {
   return createReplayRun(sourceRun, now);
 }
 
-function startRefreshJob(source: TimelineSource): RefreshJob {
-  const runningJob = runningRefreshJob();
-
-  if (runningJob) {
-    return runningJob;
+async function executeRefreshJob(options: {
+  source: TimelineSource;
+  onProgress(progress: RefreshProgress): void;
+}): Promise<RefreshRun> {
+  if (options.source === "replay") {
+    return runReplayRefresh();
   }
 
-  const job: RefreshJob = {
-    id: `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    source,
-    status: "running",
-    createdAt: new Date().toISOString(),
-    progress: createProgress(),
-  };
-  refreshJobs.set(job.id, job);
+  return runRefresh({
+    source: "x",
+    xTokenStore,
+    timelineCursor,
+    seenRepository,
+    openAICache,
+    linkPreviewCache,
+    xRawSnapshotRepository,
+    onProgress: options.onProgress,
+  });
+}
 
-  void (async () => {
-    try {
-      const run =
-        source === "replay"
-          ? await runReplayRefresh()
-          : await runRefresh({
-              source: "x",
-              xTokenStore,
-              seenRepository,
-              timelineCursor,
-              openAICache,
-              linkPreviewCache,
-              xRawSnapshotRepository,
-              onProgress: (progress) => {
-                job.progress = progress;
-              },
-      });
-      await commitRefreshRun(run, { repository, seenRepository, timelineCursor });
-      job.status = "completed";
-      job.run = run;
-      job.progress = createProgress({
-        stage: "completed",
-        label: source === "replay" ? "Replay complete" : "Pulse complete",
-        detail: source === "replay" ? `Replayed ${run.stats.selected} posts from a saved X run` : `Selected ${run.stats.selected} posts and recorded usage`,
-        processedItems: run.stats.selected,
-        totalItems: run.stats.selected,
-        usage: refreshReceiptUsage(run.usage),
-      });
-    } catch (error) {
-      job.status = "failed";
-      job.error = error instanceof Error ? error.message : "Unknown refresh error.";
-      job.progress = createProgress({
-        stage: "failed",
-        label: "Pulse failed",
-        detail: job.error,
-        usage: job.progress.usage,
-      });
-    }
-  })();
-
-  return job;
+async function commitRefreshJobRun(run: RefreshRun): Promise<void> {
+  await commitRefreshRun(run, {
+    repository,
+    seenRepository,
+    timelineCursor,
+  });
 }
 
 async function readRequestBody(request: IncomingMessage): Promise<string> {
@@ -373,7 +290,7 @@ async function handleApi(request: IncomingMessage, response: ServerResponse, url
   }
 
   if (request.method === "GET" && url.pathname === "/api/runs/jobs/latest") {
-    const job = latestRefreshJob();
+    const job = refreshJobs.latest();
     sendJson(response, 200, {
       job: job ? responseJob(job) : undefined,
     });
@@ -471,7 +388,10 @@ async function handleApi(request: IncomingMessage, response: ServerResponse, url
   if (request.method === "POST" && url.pathname === "/api/runs/jobs") {
     const rawBody = await readRequestBody(request);
     const body = rawBody ? JSON.parse(rawBody) as { source?: unknown } : {};
-    const job = startRefreshJob(requestedSource(body.source));
+    const job = refreshJobs.start(requestedSource(body.source), {
+      run: executeRefreshJob,
+      commit: commitRefreshJobRun,
+    });
     sendJson(response, 202, { job: responseJob(job) });
     return;
   }
