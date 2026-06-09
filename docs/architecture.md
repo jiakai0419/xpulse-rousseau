@@ -57,6 +57,7 @@ flowchart LR
 - `src/server/`: local HTTP server and API routes.
 - `src/server/refreshJobs.ts`: in-memory Pulse job state, progress updates, job response shaping, and completed-run usage decoration.
 - `public/`: browser UI.
+- `public/reader/`: small browser-side reader helpers used by `public/app.js`.
 - `tests/`: unit tests and test helpers.
 
 ## Live Data Flow

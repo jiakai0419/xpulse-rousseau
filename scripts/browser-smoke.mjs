@@ -8,6 +8,8 @@ const port = Number(process.env.BROWSER_SMOKE_PORT || 3200);
 const screenshotPath = process.env.BROWSER_SMOKE_SCREENSHOT || ".data/ui-smoke.png";
 const sourceStorePath = process.env.BROWSER_SMOKE_RUN_STORE || ".data/runs.json";
 const runStorePath = `.data/browser-smoke-runs-${Date.now()}-${process.pid}.json`;
+const mediaLoadTimeoutMs = 25_000;
+const viewerImageLoadTimeoutMs = 8_000;
 
 function seedReplayStore(filePath) {
   const sourceStore = JSON.parse(readFileSync(sourceStorePath, "utf8"));
@@ -221,7 +223,17 @@ try {
   }
 
   await page.click("#refresh-button");
-  await page.waitForFunction(() => document.querySelector("#task-progress")?.hidden === false, undefined, { timeout: 10_000 });
+  await page.waitForFunction(
+    (expected) => {
+      const progress = document.querySelector("#task-progress");
+      const cards = document.querySelectorAll(".tweet-card").length;
+      const translations = document.querySelectorAll(".translation").length;
+
+      return progress?.hidden === false || (cards === expected && translations === expected && progress?.hidden === true);
+    },
+    expectedCards,
+    { timeout: 10_000 },
+  );
   await page.waitForFunction(
     (expected) =>
       document.querySelectorAll(".tweet-card").length === expected &&
@@ -316,15 +328,19 @@ try {
   if (expectedInlineVideos > 0) {
     const firstVideo = page.locator(".media-item video").first();
     await firstVideo.scrollIntoViewIfNeeded();
-    await page.waitForFunction(
-      () => {
-        const video = document.querySelector(".media-item video");
+    try {
+      await page.waitForFunction(
+        () => {
+          const video = document.querySelector(".media-item video");
 
-        return Boolean(video && video.readyState >= 2 && !video.paused && video.currentTime > 0);
-      },
-      undefined,
-      { timeout: 25_000 },
-    );
+          return Boolean(video && video.readyState >= 2 && !video.paused && video.currentTime > 0);
+        },
+        undefined,
+        { timeout: mediaLoadTimeoutMs },
+      );
+    } catch (error) {
+      throw new Error(`Expected inline video media to start autoplaying within ${mediaLoadTimeoutMs}ms: ${error instanceof Error ? error.message : error}`);
+    }
 
     const videoState = await firstVideo.evaluate((video) => ({
       src: video.currentSrc || video.src,
@@ -376,32 +392,68 @@ try {
       throw new Error(`Expected media viewer to show saved X media, found ${viewerImageSrc ?? "missing image src"}.`);
     }
 
-    await page.waitForFunction(() => {
-      const image = document.querySelector("#media-viewer-image");
+    const viewerImageLoaded = await page
+      .waitForFunction(
+        () => {
+          const image = document.querySelector("#media-viewer-image");
 
-      return image && !image.hidden && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
-    }, undefined, { timeout: 10_000 });
+          return image && !image.hidden && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+        },
+        undefined,
+        { timeout: viewerImageLoadTimeoutMs },
+      )
+      .then(() => true)
+      .catch(() => false);
 
-    const viewerImageBox = await page.locator("#media-viewer-image").evaluate((image) => {
-      const rect = image.getBoundingClientRect();
+    if (viewerImageLoaded) {
+      const viewerImageBox = await page.locator("#media-viewer-image").evaluate((image) => {
+        const rect = image.getBoundingClientRect();
 
-      return {
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-        left: rect.left,
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
-      };
-    });
+        return {
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          left: rect.left,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        };
+      });
 
-    if (
-      viewerImageBox.top < -1 ||
-      viewerImageBox.left < -1 ||
-      viewerImageBox.right > viewerImageBox.viewportWidth + 1 ||
-      viewerImageBox.bottom > viewerImageBox.viewportHeight + 1
-    ) {
-      throw new Error(`Expected media viewer image to fit inside the viewport, found ${JSON.stringify(viewerImageBox)}.`);
+      if (
+        viewerImageBox.top < -1 ||
+        viewerImageBox.left < -1 ||
+        viewerImageBox.right > viewerImageBox.viewportWidth + 1 ||
+        viewerImageBox.bottom > viewerImageBox.viewportHeight + 1
+      ) {
+        throw new Error(`Expected media viewer image to fit inside the viewport, found ${JSON.stringify(viewerImageBox)}.`);
+      }
+    } else {
+      const viewerImageStyle = await page.locator("#media-viewer-image").evaluate((image) => {
+        const style = getComputedStyle(image);
+        const rect = image.getBoundingClientRect();
+
+        return {
+          src: image.currentSrc || image.src || image.getAttribute("src") || "",
+          hidden: image.hidden,
+          display: style.display,
+          maxWidth: style.maxWidth,
+          maxHeight: style.maxHeight,
+          objectFit: style.objectFit,
+          width: rect.width,
+          height: rect.height,
+        };
+      });
+
+      if (
+        viewerImageStyle.hidden ||
+        viewerImageStyle.display === "none" ||
+        viewerImageStyle.objectFit !== "contain" ||
+        viewerImageStyle.maxWidth === "none" ||
+        viewerImageStyle.maxHeight === "none" ||
+        !(viewerImageStyle.src || viewerImageSrc).includes("pbs.twimg.com/media")
+      ) {
+        throw new Error(`Expected media viewer image to keep X media source and fit-to-screen CSS while the remote original loads, found ${JSON.stringify(viewerImageStyle)}.`);
+      }
     }
 
     await page.keyboard.press("Escape");

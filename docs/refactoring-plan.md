@@ -147,6 +147,7 @@ npm run test:coverage
 - CI baseline: GitHub Actions runs doctor, unit tests, and native coverage on push and pull request.
 - Refactor guard: `npm run verify:refactor` runs doctor, unit tests, replay smoke, browser smoke, and display regression.
 - Refresh job boundary: in-memory Pulse job state moved to `src/server/refreshJobs.ts` with unit coverage.
+- Reader format helpers: browser-side formatting and HTML escaping helpers moved to `public/reader/format.js`, keeping `public/app.js` focused one step closer to app coordination and X-like rendering.
 
 ## Not Yet Approved
 
