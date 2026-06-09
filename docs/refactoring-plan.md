@@ -149,6 +149,7 @@ npm run test:coverage
 - Refresh job boundary: in-memory Pulse job state moved to `src/server/refreshJobs.ts` with unit coverage.
 - Reader format helpers: browser-side formatting and HTML escaping helpers moved to `public/reader/format.js`, keeping `public/app.js` focused one step closer to app coordination and X-like rendering.
 - Reader link rules: X-like link normalization, quote/media/preview treatment, and hidden-link text cleanup moved to `public/reader/linkRules.js` with unit coverage.
+- Reader media rules: X media image URLs, video variant selection, gallery ratios, single-media sizing, and duration formatting moved to `public/reader/mediaRules.js` with unit coverage.
 
 ## Not Yet Approved
 
