@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { defaultRequiredRenderBuckets, runCoverage } from "./render-buckets.mjs";
 
 const sourceStorePath = process.env.REPLAY_DISPLAY_RUN_STORE || ".data/runs.json";
 const maxRuns = positiveInt(process.env.REPLAY_DISPLAY_MAX_RUNS, 8);
@@ -8,21 +9,7 @@ const browserSmokeAttempts = positiveInt(process.env.REPLAY_DISPLAY_BROWSER_SMOK
 const portBase = positiveInt(process.env.REPLAY_DISPLAY_PORT_BASE, 3400);
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outputDir = process.env.REPLAY_DISPLAY_DIR || `.data/render-regression/replay-display-${timestamp}`;
-const requiredBuckets = (process.env.REPLAY_DISPLAY_REQUIRED_BUCKETS ?? [
-  "retweet",
-  "quote",
-  "quote-media",
-  "quote-video",
-  "single-photo",
-  "single-video",
-  "playable-video",
-  "multi-media",
-  "external-preview",
-  "external-no-preview",
-  "media-plus-link",
-  "x-status-link",
-  "text-only",
-].join(","))
+const requiredBuckets = (process.env.REPLAY_DISPLAY_REQUIRED_BUCKETS ?? defaultRequiredRenderBuckets.join(","))
   .split(",")
   .map((bucket) => bucket.trim())
   .filter(Boolean);
@@ -34,145 +21,6 @@ function positiveInt(value, fallback) {
 
 function readRunStore(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
-}
-
-function readerDisplayPost(post) {
-  if (post?.referencedPostType === "retweeted" && post.referencedPost) {
-    return post.referencedPost;
-  }
-
-  return post;
-}
-
-function linkHref(link) {
-  return link.unwoundUrl ?? link.expandedUrl ?? link.url ?? "";
-}
-
-function linkHost(link) {
-  try {
-    return new URL(linkHref(link)).hostname.replace(/^www\./, "").toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-function isXHost(hostname) {
-  return hostname === "x.com" || hostname === "twitter.com" || hostname.endsWith(".x.com") || hostname.endsWith(".twitter.com");
-}
-
-function isXStatusLink(link) {
-  try {
-    const url = new URL(linkHref(link));
-    const host = url.hostname.replace(/^www\./, "").toLowerCase();
-    return isXHost(host) && /\/status\/\d+/.test(url.pathname);
-  } catch {
-    return false;
-  }
-}
-
-function isMediaLink(link) {
-  if (link.mediaKey) {
-    return true;
-  }
-
-  const value = `${link.displayUrl ?? ""} ${link.expandedUrl ?? ""} ${link.unwoundUrl ?? ""} ${link.url ?? ""}`.toLowerCase();
-  return value.includes("pic.x.com") || value.includes("/photo/") || value.includes("/video/") || value.includes("pbs.twimg.com/media");
-}
-
-function isExternalLink(link) {
-  const host = linkHost(link);
-  if (!host) {
-    return false;
-  }
-
-  return !isXHost(host) && host !== "t.co" && !host.endsWith("twimg.com");
-}
-
-function hasPreview(link) {
-  return Boolean(link.preview?.title || link.preview?.description || (link.preview?.images ?? []).some((image) => image.url));
-}
-
-function hasPlayableVideo(media) {
-  return (media.variants ?? []).some((variant) => variant.url && (!variant.contentType || variant.contentType.includes("mp4")));
-}
-
-function postBuckets(timelinePost) {
-  const displayPost = readerDisplayPost(timelinePost);
-  const links = displayPost.links ?? [];
-  const media = displayPost.media ?? [];
-  const quoted = displayPost.referencedPostType === "quoted" ? displayPost.referencedPost : undefined;
-  const quotedMedia = quoted?.media ?? [];
-  const buckets = new Set();
-
-  if (timelinePost.referencedPostType === "retweeted" && timelinePost.referencedPost) {
-    buckets.add("retweet");
-  }
-
-  if (displayPost.referencedPostType === "quoted") {
-    buckets.add("quote");
-  }
-
-  if (quotedMedia.length > 0) {
-    buckets.add("quote-media");
-  }
-
-  if (quotedMedia.some((item) => item.type === "video" || item.type === "animated_gif")) {
-    buckets.add("quote-video");
-  }
-
-  if (media.length === 1 && media[0]?.type === "photo") {
-    buckets.add("single-photo");
-  }
-
-  if (media.length === 1 && (media[0]?.type === "video" || media[0]?.type === "animated_gif")) {
-    buckets.add("single-video");
-  }
-
-  if (media.some((item) => (item.type === "video" || item.type === "animated_gif") && hasPlayableVideo(item))) {
-    buckets.add("playable-video");
-  }
-
-  if (media.length > 1) {
-    buckets.add("multi-media");
-  }
-
-  if (links.some((link) => isExternalLink(link) && hasPreview(link))) {
-    buckets.add("external-preview");
-  }
-
-  if (links.some((link) => isExternalLink(link) && !hasPreview(link))) {
-    buckets.add("external-no-preview");
-  }
-
-  if (media.length > 0 && links.some(isExternalLink)) {
-    buckets.add("media-plus-link");
-  }
-
-  if (links.some(isXStatusLink)) {
-    buckets.add("x-status-link");
-  }
-
-  if (media.length === 0 && links.length === 0 && displayPost.referencedPostType !== "quoted") {
-    buckets.add("text-only");
-  }
-
-  if (links.some(isMediaLink)) {
-    buckets.add("media-link");
-  }
-
-  return buckets;
-}
-
-function runCoverage(run) {
-  const buckets = new Set();
-
-  for (const selected of run.selectedPosts ?? []) {
-    for (const bucket of postBuckets(selected.post)) {
-      buckets.add(bucket);
-    }
-  }
-
-  return buckets;
 }
 
 function chooseRuns(liveRuns) {

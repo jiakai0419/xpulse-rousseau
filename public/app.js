@@ -17,7 +17,6 @@ import {
   linkTreatment,
   normalizedPostLinks,
   textWithoutHiddenPostLinks,
-  textWithoutPostLinks,
 } from "./reader/linkRules.js";
 import {
   formatMediaDuration,
@@ -31,6 +30,8 @@ import {
   singleMediaWidth,
 } from "./reader/mediaRules.js";
 import { metricIcon, renderMetrics, renderSignal } from "./reader/actions.js";
+import { readerDisplayPost, repostContextDisplay } from "./reader/postModel.js";
+import { renderTranslation } from "./reader/translation.js";
 import {
   avatarMarkup,
   nextSelectedSource,
@@ -85,23 +86,17 @@ let xAuthState = {
   xReady: false,
 };
 
-function readerDisplayPost(post) {
-  if (post?.referencedPostType === "retweeted" && post.referencedPost) {
-    return post.referencedPost;
-  }
-
-  return post;
-}
-
 function repostContext(post) {
-  if (post?.referencedPostType !== "retweeted" || !post.referencedPost) {
+  const context = repostContextDisplay(post);
+
+  if (!context) {
     return "";
   }
 
   return `
-    <div class="repost-context" aria-label="${escapeHtml(post.author.name)} reposted">
+    <div class="repost-context" aria-label="${escapeHtml(context.label)}">
       ${metricIcon("reposts")}
-      <span>${escapeHtml(post.author.name)} reposted</span>
+      <span>${escapeHtml(context.label)}</span>
     </div>
   `;
 }
@@ -202,32 +197,6 @@ function renderXAuthStatus(state) {
   }
 
   setSelectedSource(display.selectedSource);
-}
-
-function translationText(selectedPost) {
-  return selectedPost.translation?.textZh;
-}
-
-function renderTranslation(selectedPost, displayPost = selectedPost.post) {
-  const text = translationText(selectedPost);
-
-  if (!text) {
-    return `
-      <section class="translation-block" lang="zh-CN">
-        <h2>Chinese translation</h2>
-        <p class="translation muted-text">Translation pending</p>
-      </section>
-    `;
-  }
-
-  const cleanText = textWithoutPostLinks(text, displayPost);
-
-  return `
-    <section class="translation-block" lang="zh-CN">
-      <h2>Chinese translation</h2>
-      <p class="translation">${displayText(cleanText || text)}</p>
-    </section>
-  `;
 }
 
 function renderPostMedia(post) {

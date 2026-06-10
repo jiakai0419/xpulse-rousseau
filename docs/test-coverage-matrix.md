@@ -30,6 +30,7 @@ This matrix maps V1 accepted behavior to the tests or audit commands that protec
 | Replay preserves selected posts, translations, trace evidence, media, links, and quoted posts | `tests/unit/replay.test.ts`, `npm run browser:smoke` | Constructed pipeline output plus saved X-derived run for smoke | Covered |
 | Usage is one action receipt, not global accumulation | `tests/unit/usage.test.ts` | Constructed usage records | Covered |
 | Run Trace records input, filtering, dedupe, seen, scoring, selection, and translation evidence | `tests/unit/pipeline.test.ts`, `tests/unit/replay.test.ts` | Constructed domain posts | Covered |
+| Reader rendering sample coverage is broad enough to avoid Top-7-only conclusions | `npm run render:coverage` | Saved X-derived live runs and trace input posts | Coverage inventory |
 | X-like reader rendering for retweets, quote cards, media, videos, previews, action row, and Signal | `npm run browser:smoke`, `npm run display:regression` | Saved X-derived live runs | Covered locally |
 | Local Reader screenshots are compared with Original X pages | `npm run display:audit` or `npm run display:audit:auth` | Saved X-derived live runs plus live Original X pages | Audit guard |
 | Distribution-outside display validation uses fresh Online Pulse | `FRESH_PULSE_RUNS=3 npm run fresh:audit` | Newly fetched X/OpenAI runs | Costful release guard |
@@ -62,6 +63,7 @@ npm run test:coverage
 Pre-refactor baseline:
 
 ```bash
+npm run render:coverage
 npm run verify:refactor
 npm run test:coverage
 ```

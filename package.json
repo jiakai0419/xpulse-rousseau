@@ -12,6 +12,7 @@
     "display:regression": "node scripts/replay-display-regression.mjs",
     "doctor": "node scripts/doctor.mjs",
     "fresh:audit": "node scripts/fresh-pulse-audit.mjs",
+    "render:coverage": "node scripts/render-coverage.mjs",
     "smoke": "node scripts/smoke.mjs",
     "stop": "node scripts/stop-server.mjs",
     "test": "node --experimental-strip-types --test tests/unit/*.test.ts",

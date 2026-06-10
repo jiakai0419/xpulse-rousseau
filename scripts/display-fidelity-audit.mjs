@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { chromium } from "playwright";
 import { getHost, spawnServer, waitForHealth } from "./env-utils.mjs";
+import { buildSamplePool, readerDisplayPost, renderBucketDefinitions } from "./render-buckets.mjs";
 
 const sourceStorePath = process.env.DISPLAY_AUDIT_RUN_STORE || ".data/runs.json";
 const maxSamples = positiveInt(process.env.DISPLAY_AUDIT_MAX, 48);
@@ -43,93 +44,6 @@ function sanitize(value) {
 function readRunStore(filePath) {
   const raw = readFileSync(filePath, "utf8");
   return JSON.parse(raw);
-}
-
-function readerDisplayPost(post) {
-  if (post?.referencedPostType === "retweeted" && post.referencedPost) {
-    return post.referencedPost;
-  }
-
-  return post;
-}
-
-function linkHref(link) {
-  return link.unwoundUrl ?? link.expandedUrl ?? link.url ?? "";
-}
-
-function linkHost(link) {
-  try {
-    return new URL(linkHref(link)).hostname.replace(/^www\./, "").toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-function isXHost(hostname) {
-  return hostname === "x.com" || hostname === "twitter.com" || hostname.endsWith(".x.com") || hostname.endsWith(".twitter.com");
-}
-
-function isXStatusLink(link) {
-  try {
-    const url = new URL(linkHref(link));
-    const host = url.hostname.replace(/^www\./, "").toLowerCase();
-    return isXHost(host) && /\/status\/\d+/.test(url.pathname);
-  } catch {
-    return false;
-  }
-}
-
-function isMediaLink(link) {
-  if (link.mediaKey) {
-    return true;
-  }
-
-  const value = `${link.displayUrl ?? ""} ${link.expandedUrl ?? ""} ${link.unwoundUrl ?? ""} ${link.url ?? ""}`.toLowerCase();
-  return value.includes("pic.x.com") || value.includes("/photo/") || value.includes("/video/") || value.includes("pbs.twimg.com/media");
-}
-
-function isExternalLink(link) {
-  const host = linkHost(link);
-  if (!host) {
-    return false;
-  }
-
-  return !isXHost(host) && host !== "t.co" && !host.endsWith("twimg.com");
-}
-
-function hasPreview(link) {
-  return Boolean(link.preview?.title || link.preview?.description || (link.preview?.images ?? []).some((image) => image.url));
-}
-
-function hasPlayableVideo(media) {
-  return (media.variants ?? []).some((variant) => variant.url && (!variant.contentType || variant.contentType.includes("mp4")));
-}
-
-function displayFlags(timelinePost) {
-  const display = readerDisplayPost(timelinePost);
-  const links = display.links ?? [];
-  const media = display.media ?? [];
-  const quoted = display.referencedPostType === "quoted" ? display.referencedPost : undefined;
-  const quotedMedia = quoted?.media ?? [];
-
-  return {
-    retweet: timelinePost.referencedPostType === "retweeted" && Boolean(timelinePost.referencedPost),
-    quote: display.referencedPostType === "quoted",
-    quoteMissingBody: display.referencedPostType === "quoted" && !display.referencedPost,
-    quoteHasMedia: quotedMedia.length > 0,
-    quoteHasVideo: quotedMedia.some((item) => item.type === "video" || item.type === "animated_gif"),
-    mediaCount: media.length,
-    singlePhoto: media.length === 1 && media[0]?.type === "photo",
-    singleVideo: media.length === 1 && (media[0]?.type === "video" || media[0]?.type === "animated_gif"),
-    playableVideo: media.some((item) => (item.type === "video" || item.type === "animated_gif") && hasPlayableVideo(item)),
-    multiMedia: media.length > 1,
-    externalLinks: links.filter(isExternalLink).length,
-    externalPreviewLinks: links.filter((link) => isExternalLink(link) && hasPreview(link)).length,
-    externalNoPreviewLinks: links.filter((link) => isExternalLink(link) && !hasPreview(link)).length,
-    xStatusLinks: links.filter(isXStatusLink).length,
-    mediaLinks: links.filter(isMediaLink).length,
-    textOnly: media.length === 0 && links.length === 0 && display.referencedPostType !== "quoted",
-  };
 }
 
 function scoreByPostIdFromRuns(runs) {
@@ -175,56 +89,6 @@ function fallbackScore() {
   };
 }
 
-function buildSamplePool(runs) {
-  const pool = [];
-  const seen = new Set();
-
-  for (const run of runs) {
-    for (const snapshot of run.trace?.inputPosts ?? []) {
-      const display = readerDisplayPost(snapshot.post);
-      const key = display.id;
-
-      if (seen.has(key)) {
-        continue;
-      }
-
-      seen.add(key);
-      pool.push({
-        runId: run.id,
-        runCreatedAt: run.createdAt,
-        fetchIndex: snapshot.fetchIndex,
-        timelinePost: snapshot.post,
-        displayPost: display,
-        flags: displayFlags(snapshot.post),
-      });
-    }
-  }
-
-  return pool.sort((left, right) => {
-    const timeDelta = Date.parse(right.runCreatedAt) - Date.parse(left.runCreatedAt);
-    if (timeDelta !== 0) {
-      return timeDelta;
-    }
-
-    return left.fetchIndex - right.fetchIndex;
-  });
-}
-
-const bucketDefinitions = [
-  ["retweet", (sample) => sample.flags.retweet],
-  ["quote", (sample) => sample.flags.quote],
-  ["quote-media", (sample) => sample.flags.quoteHasMedia],
-  ["quote-video", (sample) => sample.flags.quoteHasVideo],
-  ["single-video", (sample) => sample.flags.singleVideo || sample.flags.playableVideo],
-  ["single-photo", (sample) => sample.flags.singlePhoto],
-  ["multi-media", (sample) => sample.flags.multiMedia],
-  ["external-preview", (sample) => sample.flags.externalPreviewLinks > 0],
-  ["external-no-preview", (sample) => sample.flags.externalNoPreviewLinks > 0],
-  ["media-plus-link", (sample) => sample.flags.mediaCount > 0 && sample.flags.externalLinks > 0],
-  ["x-status-link", (sample) => sample.flags.xStatusLinks > 0],
-  ["text-only", (sample) => sample.flags.textOnly],
-];
-
 function chooseSamples(pool, latestSelectedIds) {
   const chosen = [];
   const picked = new Set();
@@ -246,14 +110,14 @@ function chooseSamples(pool, latestSelectedIds) {
     }
   }
 
-  for (const [bucket, predicate] of bucketDefinitions) {
+  for (const [bucket, predicate] of renderBucketDefinitions) {
     let count = 0;
     for (const sample of pool) {
       if (count >= perBucket || chosen.length >= maxSamples) {
         break;
       }
 
-      if (!predicate(sample)) {
+      if (!predicate(sample.flags)) {
         continue;
       }
 
