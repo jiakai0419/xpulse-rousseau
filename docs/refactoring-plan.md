@@ -158,6 +158,7 @@ npm run test:coverage
 - Reader post model helpers: reader-facing post selection and retweet context display data moved to `public/reader/postModel.js` with unit coverage, while HTML composition remains in `public/app.js`.
 - Reader translation renderer: Chinese translation text selection, pending display, and source-link cleanup moved to `public/reader/translation.js` with unit coverage.
 - Reader post text renderer: source text cleanup, inline link replacement, and HTML escaping moved to `public/reader/postText.js` with unit coverage.
+- Reader post link renderer: link preview card and fallback link chip rendering moved to `public/reader/postLinks.js` with unit coverage.
 
 ## Not Yet Approved
 
