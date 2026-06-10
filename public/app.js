@@ -4,14 +4,9 @@ import {
   formatElapsed,
 } from "./reader/format.js";
 import {
-  hasUsefulDisplayUrl,
   isReferencedStatusLink,
-  linkAppearsInText,
   linkDisplayLabel,
-  linkDomain,
   linkHref,
-  linkPreviewImage,
-  linkTreatment,
   normalizedPostLinks,
 } from "./reader/linkRules.js";
 import {
@@ -27,6 +22,7 @@ import {
 } from "./reader/mediaRules.js";
 import { metricIcon, renderMetrics, renderSignal } from "./reader/actions.js";
 import { readerDisplayPost, repostContextDisplay } from "./reader/postModel.js";
+import { renderPostLinks } from "./reader/postLinks.js";
 import { renderPostText } from "./reader/postText.js";
 import { renderTranslation } from "./reader/translation.js";
 import {
@@ -250,59 +246,6 @@ function renderPostMedia(post) {
   const gridStyle = gridStyles.length ? ` style="${escapeHtml(gridStyles.join("; "))}"` : "";
 
   return `<div class="${escapeHtml(gridClasses)}"${gridStyle}>${items.join("")}</div>`;
-}
-
-function renderPostLinks(post) {
-  const links = normalizedPostLinks(post);
-  const previewLinks = links.filter((link) => linkTreatment(post, link) === "preview");
-  const fallbackLinks = links.filter((link) => linkTreatment(post, link) === "inline" && !linkAppearsInText(post.text, link));
-
-  if (!previewLinks.length && !fallbackLinks.length) {
-    return "";
-  }
-
-  const cards = previewLinks.map((link) => {
-    const href = linkHref(link);
-    const domain = linkDomain(link);
-    const image = linkPreviewImage(link);
-    const title = link.preview?.title || (hasUsefulDisplayUrl(link) ? link.displayUrl : undefined) || domain || href;
-    const description = link.preview?.description || domain || "Linked from original post";
-
-    if (image) {
-      return `
-        <a class="link-card link-card-media-preview" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">
-          <span class="link-card-image-wrap">
-            <img src="${escapeHtml(image.url)}" alt="" loading="lazy" />
-            ${title ? `<strong class="link-card-image-title">${escapeHtml(title)}</strong>` : ""}
-          </span>
-          <span class="link-card-source">From ${escapeHtml(domain || linkDisplayLabel(link))}</span>
-        </a>
-      `;
-    }
-
-    return `
-      <a class="link-card" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">
-        <span class="link-card-source">${escapeHtml(domain)}</span>
-        <strong>${escapeHtml(title)}</strong>
-        <p>${escapeHtml(description)}</p>
-      </a>
-    `;
-  });
-  const fallback = fallbackLinks.map((link) => {
-    const href = linkHref(link);
-    const label = linkDisplayLabel(link);
-
-    return `
-      <a class="link-chip" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">
-        ${escapeHtml(label)}
-      </a>
-    `;
-  });
-
-  return `
-    ${cards.length ? `<div class="link-card-list">${cards.join("")}</div>` : ""}
-    ${fallback.length ? `<div class="link-chip-list" aria-label="Post links">${fallback.join("")}</div>` : ""}
-  `;
 }
 
 function renderQuotedPost(post) {
