@@ -34,6 +34,7 @@ npm run display:audit
 npm run display:audit:login
 npm run display:audit:auth
 npm run fresh:audit
+npm run render:coverage
 npm run test:coverage
 npm run verify:refactor
 ```
@@ -47,6 +48,8 @@ Browser smoke validates the current reader surface rather than old debug/status 
 `npm run display:regression` is the main local display regression guard for refactoring. It reads real saved live X runs from `.data/runs.json`, chooses a small set of runs that covers the required rendering buckets, and runs `browser:smoke` against each selected run. It does not call X or OpenAI and it does not construct fake posts. Required buckets currently include retweets, quotes, quote media, quote videos, single photo, single video, playable video, multi-media, external preview, external no-preview link, media plus external links, X status links, and text-only posts. If the local real run pool does not cover one of those shapes, the command fails and the fix is to run fresh Online Pulse until that real shape exists.
 
 Because browser media playback can occasionally miss a timing window while still being correct on retry, display regression retries each selected run once by default. The report records the number of attempts. A run that fails all attempts is treated as a real regression.
+
+`npm run render:coverage` is the real-data coverage inventory for Reader rendering. It scans recent saved live X runs and reports two pools: selected Top posts and broader trace input posts. The selected pool tells whether `browser:smoke` and `display:regression` have enough in-distribution examples. The trace input pool is broader and helps avoid learning X rendering rules from only Top 7 posts. It writes `.data/render-coverage/.../report.md` and `.data/render-coverage/.../report.json`. If a required bucket is thin or missing, run fresh Online Pulse, or use `FRESH_PULSE_RUNS=3 npm run fresh:audit`, then rerun the coverage report. Set `RENDER_COVERAGE_STRICT=1` when a refactor should fail fast on missing required buckets.
 
 `npm run verify:refactor` is the local pre-refactor baseline. It runs `doctor`, `test`, `smoke`, `browser:smoke`, and `display:regression` in order, stopping at the first failure. It deliberately does not run `display:audit` or `fresh:audit`, because those may require authenticated Original X pages or real X/OpenAI spend.
 
@@ -75,6 +78,7 @@ Some X login flows, especially Google SSO, can reject automated browser profiles
 The test suite has three layers, each with a different purpose:
 
 - **Unit and replay regression:** `npm test`, `npm run smoke`, and `npm run browser:smoke` use saved X-derived runs/traces. They are deterministic enough to protect refactors and should be run before architecture cleanup.
+- **Render coverage inventory:** `npm run render:coverage` checks whether the local real X-derived run pool is broad enough before drawing conclusions from display tests.
 - **Display regression:** `npm run display:regression` is the broad in-distribution guard for X-like rendering. Run it before and after UI refactors.
 - **Display fidelity audit:** `npm run display:audit` or `npm run display:audit:auth` compares local rendering with Original X pages. It is the calibration layer for X-like UI behavior, not the only regression test, because X is dynamic.
 - **Fresh Pulse validation:** `npm run fresh:audit` creates new saved live runs through Online Pulse and immediately audits the new run ids. For display-sensitive changes, validate at least three fresh Online Pulse runs with `FRESH_PULSE_RUNS=3 npm run fresh:audit` so the sample includes distribution-outside historical replay. This path calls X and OpenAI and should be used deliberately.
@@ -92,6 +96,7 @@ For the owner-readable behavior-to-test map, see [Test Coverage Matrix](test-cov
 - **Reader UI or rendering changes:** `npm run browser:smoke`, then `npm run display:regression`.
 - **X-like rendering calibration:** `npm run display:audit`; use `npm run display:audit:auth` only when the audit profile works for the needed Original pages.
 - **Before major refactors:** `npm run verify:refactor`, then `npm run test:coverage`, then a broad `DISPLAY_AUDIT_MAX=42 DISPLAY_AUDIT_PER_BUCKET=4 npm run display:audit` when Original X access is available.
+- **Before drawing rendering conclusions from historical data:** `npm run render:coverage`; if the report is thin, collect more live X-derived runs first.
 - **Before declaring display fidelity stable after refactor:** `FRESH_PULSE_RUNS=3 npm run fresh:audit`.
 
 ## Evaluation Direction

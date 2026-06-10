@@ -58,6 +58,7 @@ Do not start the next refactor until the current one is merged or explicitly pau
 **Verification:**
 
 ```bash
+npm run render:coverage
 npm test
 npm run browser:smoke
 npm run display:regression
@@ -153,6 +154,9 @@ npm run test:coverage
 - Reader status helpers: usage receipt rendering, per-run usage grouping, Pulse progress labels, and compact model status moved to `public/reader/status.js` with unit coverage.
 - Reader source/auth helpers: Online/Offline source display, X auth sidebar display state, and shared avatar markup moved to `public/reader/sourceStatus.js` with unit coverage.
 - Reader action helpers: post footer metric icons/counts and Signal summary/detail rendering moved to `public/reader/actions.js` with unit coverage.
+- Reader render bucket classifier: shared X-derived sample classification for display regression, display audit, and render coverage inventory, so refactors do not learn UI rules from only the latest Top 7.
+- Reader post model helpers: reader-facing post selection and retweet context display data moved to `public/reader/postModel.js` with unit coverage, while HTML composition remains in `public/app.js`.
+- Reader translation renderer: Chinese translation text selection, pending display, and source-link cleanup moved to `public/reader/translation.js` with unit coverage.
 
 ## Not Yet Approved
 
