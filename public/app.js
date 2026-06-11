@@ -1,14 +1,7 @@
 import {
   formatElapsed,
 } from "./reader/format.js";
-import { renderMetrics, renderSignal } from "./reader/actions.js";
-import { readerDisplayPost } from "./reader/postModel.js";
-import { renderPostChrome } from "./reader/postChrome.js";
-import { renderPostLinks } from "./reader/postLinks.js";
-import { renderPostMedia } from "./reader/postMedia.js";
-import { renderQuotedPost } from "./reader/postQuote.js";
-import { renderPostText } from "./reader/postText.js";
-import { renderTranslation } from "./reader/translation.js";
+import { renderPost } from "./reader/post.js";
 import {
   nextSelectedSource,
   sourceToggleDisplay,
@@ -154,29 +147,6 @@ function renderXAuthStatus(state) {
   }
 
   setSelectedSource(display.selectedSource);
-}
-
-function renderPost(selectedPost, index) {
-  const { post, score } = selectedPost;
-  const displayPost = readerDisplayPost(post);
-  const tweetText = renderPostText(displayPost);
-
-  return `
-    <article class="tweet-card">
-      ${renderPostChrome(post, displayPost, index + 1)}
-      <div class="tweet-main">
-        ${tweetText ? `<p class="tweet-text">${tweetText}</p>` : ""}
-        ${renderPostMedia(displayPost)}
-        ${renderQuotedPost(displayPost, { renderPostMedia })}
-        ${renderPostLinks(displayPost)}
-        ${renderTranslation(selectedPost, displayPost)}
-        <div class="post-footer">
-          ${renderMetrics(displayPost.metrics)}
-          ${renderSignal(score)}
-        </div>
-      </div>
-    </article>
-  `;
 }
 
 function renderRun(run) {
