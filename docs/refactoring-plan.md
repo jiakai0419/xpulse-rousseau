@@ -160,6 +160,7 @@ npm run test:coverage
 - Reader post text renderer: source text cleanup, inline link replacement, and HTML escaping moved to `public/reader/postText.js` with unit coverage.
 - Reader post link renderer: link preview card and fallback link chip rendering moved to `public/reader/postLinks.js` with unit coverage.
 - Reader post chrome renderer: avatar, retweet context, author line, original-link action, and rank badge rendering moved to `public/reader/postChrome.js` with unit coverage.
+- Reader quote renderer: quoted-post placeholder and quote-card rendering moved to `public/reader/postQuote.js` with unit coverage while media rendering remains a caller-supplied dependency.
 
 ## Not Yet Approved
 
