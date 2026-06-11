@@ -162,6 +162,7 @@ npm run test:coverage
 - Reader post chrome renderer: avatar, retweet context, author line, original-link action, and rank badge rendering moved to `public/reader/postChrome.js` with unit coverage.
 - Reader quote renderer: quoted-post placeholder and quote-card rendering moved to `public/reader/postQuote.js` with unit coverage while media rendering remains a caller-supplied dependency.
 - Reader post media renderer: media grid HTML, viewer data attributes, inline video tags, and duration labels moved to `public/reader/postMedia.js` with unit coverage while media viewer behavior remains in `public/app.js`.
+- Reader post composer: full post-card assembly moved to `public/reader/post.js` with integration-level unit coverage, leaving `public/app.js` focused on app state, API calls, event wiring, and media viewer behavior.
 
 ## Not Yet Approved
 
