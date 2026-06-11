@@ -20,13 +20,13 @@ import {
   proxiedVideoUrl,
   singleMediaWidth,
 } from "./reader/mediaRules.js";
-import { metricIcon, renderMetrics, renderSignal } from "./reader/actions.js";
-import { readerDisplayPost, repostContextDisplay } from "./reader/postModel.js";
+import { renderMetrics, renderSignal } from "./reader/actions.js";
+import { readerDisplayPost } from "./reader/postModel.js";
+import { renderAvatar, renderPostChrome } from "./reader/postChrome.js";
 import { renderPostLinks } from "./reader/postLinks.js";
 import { renderPostText } from "./reader/postText.js";
 import { renderTranslation } from "./reader/translation.js";
 import {
-  avatarMarkup,
   nextSelectedSource,
   sourceToggleDisplay,
   xAuthAvatarDisplay,
@@ -79,21 +79,6 @@ let xAuthState = {
   xReady: false,
 };
 
-function repostContext(post) {
-  const context = repostContextDisplay(post);
-
-  if (!context) {
-    return "";
-  }
-
-  return `
-    <div class="repost-context" aria-label="${escapeHtml(context.label)}">
-      ${metricIcon("reposts")}
-      <span>${escapeHtml(context.label)}</span>
-    </div>
-  `;
-}
-
 function renderUsage(receipt) {
   if (!receipt?.lines?.length) {
     usagePanelNode.hidden = true;
@@ -125,10 +110,6 @@ function renderNotice(message, detail = "") {
   taskProgressBarNode.style.width = "100%";
   taskProgressDetailNode.textContent = detail;
   statusNode.textContent = detail ? `${message}: ${detail}` : message;
-}
-
-function renderAvatar(author) {
-  return avatarMarkup(author);
 }
 
 function setSelectedSource(source) {
@@ -302,24 +283,7 @@ function renderPost(selectedPost, index) {
 
   return `
     <article class="tweet-card">
-      ${repostContext(post)}
-      <div class="avatar-column">
-        ${renderAvatar(displayPost.author)}
-      </div>
-      <div class="tweet-head-main">
-        <div class="tweet-head">
-          <div class="author-line">
-            <strong>${escapeHtml(displayPost.author.name)}</strong>
-            <span>@${escapeHtml(displayPost.author.username)}</span>
-            <span>·</span>
-            <time datetime="${escapeHtml(displayPost.createdAt)}">${escapeHtml(formatDate(displayPost.createdAt))}</time>
-          </div>
-          <div class="tweet-head-actions">
-            <a class="original-link" href="${escapeHtml(displayPost.url)}" target="_blank" rel="noreferrer" aria-label="View original post on X">Original</a>
-            <span class="rank-badge">#${escapeHtml(index + 1)}</span>
-          </div>
-        </div>
-      </div>
+      ${renderPostChrome(post, displayPost, index + 1)}
       <div class="tweet-main">
         ${tweetText ? `<p class="tweet-text">${tweetText}</p>` : ""}
         ${renderPostMedia(displayPost)}
