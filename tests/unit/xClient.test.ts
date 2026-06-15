@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { UsageRecord } from "../../src/domain/tweet.ts";
+import type { XRawTimelineSnapshot } from "../../src/services/x/rawSnapshotStore.ts";
 import { fetchHomeTimeline } from "../../src/services/x/client.ts";
+
+function commaParam(url: URL | undefined, name: string): string[] {
+  return (url?.searchParams.get(name) ?? "").split(",").filter(Boolean);
+}
+
+function assertParamIncludes(url: URL | undefined, name: string, expected: string[]) {
+  const values = commaParam(url, name);
+
+  for (const value of expected) {
+    assert.ok(values.includes(value), `${name} should include ${value}`);
+  }
+}
 
 test("fetchHomeTimeline records X API usage", async () => {
   const originalFetch = globalThis.fetch;
@@ -213,6 +226,149 @@ test("fetchHomeTimeline records X API usage", async () => {
   }
 });
 
+test("fetchHomeTimeline requests the full reader-oriented X field profile", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl: URL | undefined;
+
+  globalThis.fetch = async (url) => {
+    requestedUrl = new URL(String(url));
+
+    return new Response(JSON.stringify({ data: [] }), { status: 200 });
+  };
+
+  try {
+    await fetchHomeTimeline({
+      userId: "user-1",
+      accessToken: "token-1",
+      maxResults: 10,
+      maxPages: 1,
+    });
+
+    assertParamIncludes(requestedUrl, "expansions", [
+      "author_id",
+      "referenced_tweets.id",
+      "referenced_tweets.id.author_id",
+      "referenced_tweets.id.attachments.media_keys",
+      "attachments.media_keys",
+      "attachments.poll_ids",
+      "geo.place_id",
+      "in_reply_to_user_id",
+      "entities.mentions.username",
+    ]);
+    assertParamIncludes(requestedUrl, "tweet.fields", [
+      "attachments",
+      "author_id",
+      "context_annotations",
+      "conversation_id",
+      "created_at",
+      "edit_controls",
+      "edit_history_tweet_ids",
+      "entities",
+      "geo",
+      "id",
+      "in_reply_to_user_id",
+      "lang",
+      "possibly_sensitive",
+      "public_metrics",
+      "referenced_tweets",
+      "reply_settings",
+      "source",
+      "text",
+      "withheld",
+      "note_tweet",
+    ]);
+    assertParamIncludes(requestedUrl, "user.fields", [
+      "created_at",
+      "description",
+      "entities",
+      "id",
+      "location",
+      "name",
+      "pinned_tweet_id",
+      "profile_banner_url",
+      "profile_image_url",
+      "protected",
+      "public_metrics",
+      "url",
+      "username",
+      "verified",
+      "verified_type",
+      "withheld",
+    ]);
+    assertParamIncludes(requestedUrl, "media.fields", [
+      "alt_text",
+      "duration_ms",
+      "height",
+      "media_key",
+      "preview_image_url",
+      "public_metrics",
+      "type",
+      "url",
+      "variants",
+      "width",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("fetchHomeTimeline stores raw timeline payloads before normalization", async () => {
+  const originalFetch = globalThis.fetch;
+  const snapshots: XRawTimelineSnapshot[] = [];
+  const rawPayload = {
+    data: [
+      {
+        id: "tweet-raw",
+        text: "Stored before normalization",
+        author_id: "author-raw",
+        created_at: "2026-06-05T00:00:00.000Z",
+        public_metrics: {
+          like_count: 3,
+        },
+        provider_only_field: {
+          shouldStayInRawSnapshot: true,
+        },
+      },
+    ],
+    includes: {
+      users: [
+        {
+          id: "author-raw",
+          name: "Raw Author",
+          username: "raw_author",
+        },
+      ],
+    },
+    meta: {
+      result_count: 1,
+    },
+  };
+
+  globalThis.fetch = async () => new Response(JSON.stringify(rawPayload), { status: 200 });
+
+  try {
+    const posts = await fetchHomeTimeline({
+      userId: "user-1",
+      accessToken: "token-1",
+      maxResults: 10,
+      maxPages: 1,
+      onRawSnapshot: (snapshot) => {
+        snapshots.push(snapshot);
+      },
+    });
+
+    assert.equal(posts[0].id, "tweet-raw");
+    assert.equal(snapshots.length, 1);
+    assert.equal(snapshots[0].endpoint, "/2/users/:id/timelines/reverse_chronological");
+    assert.equal(snapshots[0].mode, "baseline");
+    assert.equal(snapshots[0].status, 200);
+    assert.equal(snapshots[0].query["tweet.fields"].includes("note_tweet"), true);
+    assert.deepEqual(snapshots[0].payload, rawPayload);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("fetchHomeTimeline prefers since_id and falls back to baseline pages", async () => {
   const originalFetch = globalThis.fetch;
   const requestedUrls: URL[] = [];
@@ -287,6 +443,7 @@ test("fetchHomeTimeline prefers since_id and falls back to baseline pages", asyn
 test("fetchHomeTimeline looks up missing nested quoted posts from reposted sources", async () => {
   const originalFetch = globalThis.fetch;
   const requestedUrls: URL[] = [];
+  const snapshots: XRawTimelineSnapshot[] = [];
   const usage: UsageRecord[] = [];
 
   globalThis.fetch = async (url) => {
@@ -301,11 +458,44 @@ test("fetchHomeTimeline looks up missing nested quoted posts from reposted sourc
           data: [
             {
               id: "quote-1",
-              text: "Quoted source body",
+              text: "Quoted source body https://t.co/qcard https://t.co/qvideo",
+              note_tweet: {
+                text: "Quoted long source body https://t.co/qcard https://t.co/qvideo",
+                entities: {
+                  urls: [
+                    {
+                      url: "https://t.co/qcard",
+                      expanded_url: "https://example.com/quote-card",
+                      display_url: "example.com/quote-card",
+                      title: "Quote card title",
+                      description: "Quote card description",
+                      images: [
+                        {
+                          url: "https://pbs.twimg.com/card_img/quote-card.jpg",
+                          width: 1200,
+                          height: 630,
+                        },
+                      ],
+                    },
+                    {
+                      url: "https://t.co/qvideo",
+                      display_url: "pic.x.com/qvideo",
+                      media_key: "quote-video",
+                    },
+                  ],
+                },
+              },
               author_id: "author-quote",
               created_at: "2026-06-05T00:00:00.000Z",
+              attachments: {
+                media_keys: ["quote-video"],
+              },
               public_metrics: {
+                reply_count: 2,
+                retweet_count: 3,
                 like_count: 7,
+                quote_count: 1,
+                impression_count: 900,
               },
             },
           ],
@@ -315,6 +505,27 @@ test("fetchHomeTimeline looks up missing nested quoted posts from reposted sourc
                 id: "author-quote",
                 name: "Quote Author",
                 username: "quote_author",
+              },
+            ],
+            media: [
+              {
+                media_key: "quote-video",
+                type: "video",
+                preview_image_url: "https://pbs.twimg.com/media/quote-video-preview.jpg",
+                duration_ms: 9876,
+                width: 720,
+                height: 1280,
+                variants: [
+                  {
+                    content_type: "application/x-mpegURL",
+                    url: "https://video.twimg.com/ext_tw_video/playlist.m3u8",
+                  },
+                  {
+                    bit_rate: 256000,
+                    content_type: "video/mp4",
+                    url: "https://video.twimg.com/ext_tw_video/vid/360x640/quote-low.mp4",
+                  },
+                ],
               },
             ],
           },
@@ -405,15 +616,32 @@ test("fetchHomeTimeline looks up missing nested quoted posts from reposted sourc
       accessToken: "token-1",
       maxResults: 10,
       maxPages: 1,
+      onRawSnapshot: (snapshot) => {
+        snapshots.push(snapshot);
+      },
       onUsage: (record) => usage.push(record),
     });
 
+    const lookupUrl = requestedUrls.find((url) => url.pathname === "/2/tweets");
+    assertParamIncludes(lookupUrl, "tweet.fields", ["note_tweet", "entities", "attachments", "public_metrics"]);
+    assertParamIncludes(lookupUrl, "media.fields", ["variants", "duration_ms", "preview_image_url", "width", "height"]);
     assert.equal(posts.length, 1);
     assert.equal(posts[0].referencedPostType, "retweeted");
     assert.equal(posts[0].referencedPost?.id, "source-1");
     assert.equal(posts[0].referencedPost?.referencedPostType, "quoted");
     assert.equal(posts[0].referencedPost?.referencedPost?.id, "quote-1");
     assert.equal(posts[0].referencedPost?.referencedPost?.author.username, "quote_author");
+    assert.equal(posts[0].referencedPost?.referencedPost?.text, "Quoted long source body https://t.co/qcard https://t.co/qvideo");
+    assert.equal(posts[0].referencedPost?.referencedPost?.links?.[0].preview?.title, "Quote card title");
+    assert.equal(posts[0].referencedPost?.referencedPost?.links?.[0].preview?.images?.[0].url, "https://pbs.twimg.com/card_img/quote-card.jpg");
+    assert.equal(posts[0].referencedPost?.referencedPost?.media?.[0].type, "video");
+    assert.equal(posts[0].referencedPost?.referencedPost?.media?.[0].durationMs, 9876);
+    assert.equal(posts[0].referencedPost?.referencedPost?.media?.[0].variants?.[1].url, "https://video.twimg.com/ext_tw_video/vid/360x640/quote-low.mp4");
+    assert.equal(posts[0].referencedPost?.referencedPost?.metrics.impressions, 900);
+    assert.equal(snapshots.length, 2);
+    assert.deepEqual(snapshots.map((snapshot) => snapshot.mode), ["baseline", "lookup"]);
+    assert.equal(snapshots[1].endpoint, "/2/tweets");
+    assert.equal(snapshots[1].query.ids, "quote-1");
     assert.equal(requestedUrls.length, 2);
     assert.equal(usage.length, 2);
     assert.equal(usage[0].operation, "x.timeline");
