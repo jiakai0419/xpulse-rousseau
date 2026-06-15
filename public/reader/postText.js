@@ -3,8 +3,8 @@ import {
   findTokenRanges,
   linkDisplayLabel,
   linkHref,
+  linkShouldAppearInText,
   linkTokens,
-  linkTreatment,
   normalizedPostLinks,
   textWithoutHiddenPostLinks,
 } from "./linkRules.js";
@@ -24,7 +24,7 @@ export function renderPostText(post) {
   }
 
   const replacements = normalizedPostLinks(post)
-    .filter((link) => linkTreatment(post, link) === "inline")
+    .filter((link) => linkShouldAppearInText(post, link))
     .flatMap((link) =>
       linkTokens(link).flatMap((token) =>
         findTokenRanges(text, token).map((range) => ({

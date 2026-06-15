@@ -33,6 +33,28 @@ For each refactor:
 
 Do not start the next refactor until the current one is merged or explicitly paused.
 
+## Current Gate Before The Next Refactor
+
+Before starting the second refactor track, close and commit the current V1 stabilization slice. This slice includes Reader rendering extraction, display-fidelity tooling, screenshot-quality checks, the Original Evidence Cache, Display Oracle, Visual Review Pack, and related tests/docs.
+
+The immediate gate is:
+
+```bash
+DISPLAY_ORIGINAL_CACHE_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:original-cache
+DISPLAY_ORACLE_REQUIRE_ALL=1 DISPLAY_ORACLE_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:oracle
+DISPLAY_VISUAL_REVIEW_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:visual-review
+```
+
+The accepted result from 2026-06-15 is:
+
+```txt
+OK original evidence cache: 225/225 valid, 0 missing, 0 invalid.
+OK display oracle: 225 samples.
+OK display visual review: 225 samples, 38 sheets.
+```
+
+Do not begin the X ingestion/normalization refactor while this slice is still uncommitted or while the 225-row evidence baseline is blocked. This prevents the next refactor from mixing renderer/test-harness changes with upstream X data changes.
+
 ## Top 3 Refactor Tracks
 
 ### 1. Reader Rendering Boundary

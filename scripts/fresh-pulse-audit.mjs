@@ -7,6 +7,7 @@ const pulseRuns = positiveInt(process.env.FRESH_PULSE_RUNS, 1);
 const displayAudit = process.env.FRESH_PULSE_DISPLAY_AUDIT !== "0";
 const displayAuditAuth = process.env.FRESH_PULSE_DISPLAY_AUDIT_AUTH === "1";
 const timeoutMs = positiveInt(process.env.FRESH_PULSE_TIMEOUT_MS, 20 * 60 * 1000);
+const displayAuditTimeoutMs = positiveInt(process.env.FRESH_PULSE_DISPLAY_AUDIT_TIMEOUT_MS, 8 * 60 * 1000);
 
 function positiveInt(value, fallback) {
   const parsed = Number(value);
@@ -84,6 +85,7 @@ function runDisplayAudit(runId, index) {
     cwd: process.cwd(),
     env,
     encoding: "utf8",
+    timeout: displayAuditTimeoutMs,
   });
 
   if (result.stdout.trim()) {
@@ -92,6 +94,11 @@ function runDisplayAudit(runId, index) {
 
   if (result.stderr.trim()) {
     console.error(result.stderr.trim());
+  }
+
+  if (result.error) {
+    const detail = result.error.code === "ETIMEDOUT" ? `timed out after ${Math.round(displayAuditTimeoutMs / 1000)} seconds` : result.error.message;
+    throw new Error(`Display audit failed for fresh Pulse run ${runId}: ${detail}.`);
   }
 
   if (result.status !== 0) {

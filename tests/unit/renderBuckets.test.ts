@@ -97,6 +97,39 @@ test("displayFlags identifies quote media, playable video, and link-preview shap
   );
 });
 
+test("displayFlags identifies X article links in main and quoted posts", () => {
+  const quoted = post({
+    id: "quoted-article",
+    author: author("quoted-author"),
+    links: [
+      {
+        url: "https://t.co/article",
+        expandedUrl: "https://x.com/i/article/2064783001465331804",
+        displayUrl: "x.com/i/article/2064...",
+      },
+    ],
+  });
+  const timelinePost = post({
+    referencedPostType: "quoted",
+    referencedPost: quoted,
+    links: [
+      {
+        url: "https://t.co/main-article",
+        expandedUrl: "https://x.com/i/article/2064000000000000000",
+        displayUrl: "x.com/i/article/2064...",
+      },
+    ],
+  });
+
+  const flags = displayFlags(timelinePost);
+  const buckets = bucketsFromFlags(flags);
+
+  assert.equal(flags.xArticleLinks, 1);
+  assert.equal(flags.quoteXArticleLinks, 1);
+  assert.equal(buckets.includes("x-article-link"), true);
+  assert.equal(buckets.includes("quote-x-article-link"), true);
+});
+
 test("sample pools distinguish broad trace inputs from selected Top posts", () => {
   const selected = post({ id: "selected", text: "Selected post" });
   const traceOnly = post({

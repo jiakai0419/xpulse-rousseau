@@ -76,6 +76,37 @@ test("renderPostLinks renders preview images as media preview cards", () => {
   assert.match(html, /From example\.com/);
 });
 
+test("renderPostLinks renders only one primary external preview card", () => {
+  const html = renderPostLinks(
+    post({
+      text: "Read https://t.co/one and https://t.co/two",
+      links: [
+        {
+          url: "https://t.co/one",
+          expandedUrl: "https://one.example/report",
+          displayUrl: "one.example/report",
+          preview: {
+            title: "Primary report",
+          },
+        },
+        {
+          url: "https://t.co/two",
+          expandedUrl: "https://two.example/report",
+          displayUrl: "two.example/report",
+          preview: {
+            title: "Secondary report",
+          },
+        },
+      ],
+    }),
+  );
+
+  assert.match(html, /Primary report/);
+  assert.doesNotMatch(html, /Secondary report/);
+  assert.equal((html.match(/class="link-card(?:\s|")/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /link-chip-list/);
+});
+
 test("renderPostLinks renders fallback chips only for inline links absent from text", () => {
   const html = renderPostLinks(
     post({

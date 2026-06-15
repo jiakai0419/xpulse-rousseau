@@ -135,11 +135,12 @@ Symptom:
 ```txt
 Couldn’t sign you in
 This browser or app may not be secure.
+We’ve temporarily limited your login. Please try again later.
 ```
 
-Cause: Google SSO can block Playwright-controlled browser profiles even when the browser binary is system Chrome.
+Cause: Google SSO can block Playwright-controlled browser profiles even when the browser binary is system Chrome. X can also temporarily limit repeated login attempts from an automated browser profile.
 
-Fix: do not try to bypass the login protection. For login-required Original X pages, use the user's already-authenticated Chrome through the Codex Chrome connector for read-only display-fidelity inspection. Keep `npm run display:audit` as the automated local replay and unauthenticated Original comparison path, and use the authenticated Chrome path only for Original pages that would otherwise show a login wall.
+Fix: do not try to bypass these protections or repeatedly retry login. In the current environment, `npm run display:audit:login` is treated as unavailable and fails fast by design. Keep local replay and regression checks as the automated baseline; use already-authenticated Chrome only for manual read-only Original inspection, not as the automated screenshot source of truth.
 
 ## Future Environment Risks
 

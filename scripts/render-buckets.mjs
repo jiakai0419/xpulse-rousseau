@@ -3,6 +3,8 @@ export const defaultRequiredRenderBuckets = [
   "quote",
   "quote-media",
   "quote-video",
+  "x-article-link",
+  "quote-x-article-link",
   "single-photo",
   "single-video",
   "playable-video",
@@ -48,6 +50,16 @@ export function isXStatusLink(link) {
   }
 }
 
+export function isXArticleLink(link) {
+  try {
+    const url = new URL(linkHref(link));
+    const host = url.hostname.replace(/^www\./, "").toLowerCase();
+    return isXHost(host) && /^\/i\/article\//.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 export function isMediaLink(link) {
   if (link.mediaKey) {
     return true;
@@ -79,6 +91,7 @@ export function displayFlags(timelinePost) {
   const links = display.links ?? [];
   const media = display.media ?? [];
   const quoted = display.referencedPostType === "quoted" ? display.referencedPost : undefined;
+  const quotedLinks = quoted?.links ?? [];
   const quotedMedia = quoted?.media ?? [];
 
   return {
@@ -96,6 +109,8 @@ export function displayFlags(timelinePost) {
     externalPreviewLinks: links.filter((link) => isExternalLink(link) && hasPreview(link)).length,
     externalNoPreviewLinks: links.filter((link) => isExternalLink(link) && !hasPreview(link)).length,
     xStatusLinks: links.filter(isXStatusLink).length,
+    xArticleLinks: links.filter(isXArticleLink).length,
+    quoteXArticleLinks: quotedLinks.filter(isXArticleLink).length,
     mediaLinks: links.filter(isMediaLink).length,
     textOnly: media.length === 0 && links.length === 0 && display.referencedPostType !== "quoted",
   };
@@ -115,6 +130,8 @@ export const renderBucketDefinitions = [
   ["external-no-preview", (flags) => flags.externalNoPreviewLinks > 0],
   ["media-plus-link", (flags) => flags.mediaCount > 0 && flags.externalLinks > 0],
   ["x-status-link", (flags) => flags.xStatusLinks > 0],
+  ["x-article-link", (flags) => flags.xArticleLinks > 0],
+  ["quote-x-article-link", (flags) => flags.quoteXArticleLinks > 0],
   ["media-link", (flags) => flags.mediaLinks > 0],
   ["text-only", (flags) => flags.textOnly],
 ];

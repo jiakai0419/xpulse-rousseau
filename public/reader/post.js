@@ -18,7 +18,7 @@ export function renderPost(selectedPost, index) {
       <div class="tweet-main">
         ${tweetText ? `<p class="tweet-text">${tweetText}</p>` : ""}
         ${renderPostMedia(displayPost)}
-        ${renderQuotedPost(displayPost, { renderPostMedia })}
+        ${renderQuotedPost(displayPost, { renderPostLinks, renderPostMedia })}
         ${renderPostLinks(displayPost)}
         ${renderTranslation(selectedPost, displayPost)}
         <div class="post-footer">

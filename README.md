@@ -46,19 +46,22 @@ Run browser and display-fidelity checks:
 ```bash
 npm run browser:smoke
 npm run display:regression
+npm run display:inventory
+npm run display:original-cache
+npm run display:oracle
+npm run display:rule-ledger
 npm run display:audit
 ```
 
-When Original X pages require login during display-fidelity work, initialize the dedicated local audit profile once, then run the authenticated audit:
+When Original X pages require login during display-fidelity work, do not rely on automated X login from Playwright. In this environment X/Google blocks the dedicated audit profile, so the login helper fails fast by design:
 
 ```bash
 npm run display:audit:login
-npm run display:audit:auth
 ```
 
-The audit profile lives under `.data/x-audit-browser-profile/`, is ignored by git, and is only used by the display-fidelity script.
+`display:audit:auth` is retained only for the rare case where `.data/x-audit-browser-profile/` is already authenticated by some external means. It is not a supported setup path. When the profile is not authenticated, it fails fast instead of opening a login flow.
 
-If X login uses Google SSO and Google rejects the automated audit profile, use the Codex Chrome connector with the user's already-authenticated Chrome for those Original-page checks. The automated audit report still provides the local screenshots and the exact Original URLs to inspect.
+Use `DISPLAY_AUDIT_SKIP_ORIGINAL=1 npm run display:audit` only when you deliberately want a local replay report without Original X screenshots. For rigorous Original X comparison, use the Display Oracle flow: `display:inventory` finds real-data candidates, `display:original-cache` tracks which Original screenshots/facts have been captured from the user's already-authenticated normal Chrome session, and `display:oracle` blocks any checked sample with missing or blank local or Original evidence.
 
 For distribution-outside validation after display-sensitive refactors, run a real Online Pulse audit deliberately:
 
@@ -137,6 +140,8 @@ Scoring and translation share `OPENAI_MODEL` by default. To lower OpenAI cost du
 - [X OAuth setup](docs/integrations/x-oauth.md)
 - [Testing strategy](docs/testing.md)
 - [Test coverage matrix](docs/test-coverage-matrix.md)
+- [Display fidelity oracle](docs/display-fidelity-oracle.md)
+- [Display rule ledger](docs/display-rule-ledger.json)
 - [Refactoring plan](docs/refactoring-plan.md)
 - [Usage design](docs/usage.md)
 - [Run trace design](docs/run-trace.md)

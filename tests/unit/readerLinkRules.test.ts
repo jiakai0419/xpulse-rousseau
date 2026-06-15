@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   findTokenRanges,
   linkDisplayLabel,
+  linkShouldAppearInText,
   linkTreatment,
   normalizedPostLinks,
   textWithoutHiddenPostLinks,
@@ -97,6 +98,35 @@ test("linkTreatment renders ordinary previews only when attached media is absent
   assert.equal(linkTreatment({ text: "", media: [{ mediaKey: "3_1" }], links: [previewLink] }, previewLink), "inline");
 });
 
+test("linkTreatment keeps only one primary no-media preview card", () => {
+  const firstPreview = {
+    url: "https://t.co/one",
+    expandedUrl: "https://one.example/article",
+    displayUrl: "one.example/article",
+    preview: {
+      title: "First preview",
+    },
+  };
+  const secondPreview = {
+    url: "https://t.co/two",
+    expandedUrl: "https://two.example/article",
+    displayUrl: "two.example/article",
+    preview: {
+      title: "Second preview",
+    },
+  };
+  const post = {
+    text: "Read https://t.co/one and https://t.co/two",
+    media: [],
+    links: [firstPreview, secondPreview],
+  };
+
+  assert.equal(linkTreatment(post, firstPreview), "preview");
+  assert.equal(linkTreatment(post, secondPreview), "inline");
+  assert.equal(linkShouldAppearInText(post, firstPreview), true);
+  assert.equal(textWithoutHiddenPostLinks(post.text, post), "Read https://t.co/one and https://t.co/two");
+});
+
 test("textWithoutHiddenPostLinks keeps inline links and removes rich-object links", () => {
   const post = {
     text: "Here https://example.com/a https://x.com/source/status/123",
@@ -115,6 +145,44 @@ test("textWithoutHiddenPostLinks keeps inline links and removes rich-object link
   };
 
   assert.equal(textWithoutHiddenPostLinks(post.text, post), "Here https://example.com/a");
+});
+
+test("preview links stay visible when followed by more body text", () => {
+  const link = {
+    url: "https://t.co/docs",
+    expandedUrl: "https://docs.z.ai/devpack/latest",
+    displayUrl: "docs.z.ai/devpack/latest...",
+    preview: {
+      title: "How to Switch Models",
+    },
+  };
+  const post = {
+    text: "Plans include Lite and Pro.\nhttps://t.co/docs\n\nMore details next week.",
+    links: [link],
+  };
+
+  assert.equal(linkTreatment(post, link), "preview");
+  assert.equal(linkShouldAppearInText(post, link), true);
+  assert.equal(textWithoutHiddenPostLinks(post.text, post), post.text);
+});
+
+test("trailing preview links are hidden from body text while keeping their card", () => {
+  const link = {
+    url: "https://t.co/story",
+    expandedUrl: "https://example.com/story",
+    displayUrl: "example.com/story",
+    preview: {
+      title: "Story",
+    },
+  };
+  const post = {
+    text: "Read more: https://t.co/story",
+    links: [link],
+  };
+
+  assert.equal(linkTreatment(post, link), "preview");
+  assert.equal(linkShouldAppearInText(post, link), false);
+  assert.equal(textWithoutHiddenPostLinks(post.text, post), "Read more:");
 });
 
 test("link labels and token ranges stay deterministic for renderer replacement", () => {

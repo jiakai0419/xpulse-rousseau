@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "video_media_rendering",
+      "status": "accepted",
+      "confidence": "high",
+      "inventoryBuckets": ["single-video", "playable-video", "quote-video"],
+      "inventoryRisks": ["video_without_playable_variant", "quote_video_without_playable_variant"],
+      "oracleDiffs": ["expected_playable_video_local_missing_video", "original_has_video_local_missing_video"],
+      "evidenceRequired": ["local screenshot", "local facts", "Original screenshot", "Original facts"],
+      "observedXBehavior": "When Original X renders a video for a post with saved playable media, the Reader should render a video element rather than a static missing/placeholder surface.",
+      "readerRule": "Use saved X video variants through the local media proxy and render the video in the media frame."
+    },
+    {
+      "id": "video_autoplay",
+      "status": "accepted",
+      "confidence": "medium",
+      "inventoryBuckets": ["single-video", "playable-video", "quote-video"],
+      "inventoryRisks": [],
+      "oracleDiffs": ["original_video_playing_local_not_playing"],
+      "evidenceRequired": ["local video facts", "Original video facts", "contentful screenshots"],
+      "observedXBehavior": "Original X commonly autoplays visible timeline/detail videos muted when the page allows playback.",
+      "readerRule": "Reader videos should autoplay muted inline when a playable variant exists. Playback timing can be flaky, so this rule must be backed by video facts as well as screenshots."
+    },
+    {
+      "id": "media_presence",
+      "status": "accepted",
+      "confidence": "high",
+      "inventoryBuckets": ["single-photo", "single-video", "multi-media", "quote-media"],
+      "inventoryRisks": ["media_plus_external_link", "media_plus_quote"],
+      "oracleDiffs": ["original_has_media_local_missing_media"],
+      "evidenceRequired": ["local media facts", "Original media facts", "contentful screenshots"],
+      "observedXBehavior": "If Original X shows attached media, the Reader should show corresponding image/video media instead of only text or links.",
+      "readerRule": "Preserve X media arrays and render saved media before translation and action rows."
+    },
+    {
+      "id": "link_text_treatment",
+      "status": "accepted",
+      "confidence": "medium",
+      "inventoryBuckets": ["external-preview", "external-no-preview", "media-plus-link", "x-status-link"],
+      "inventoryRisks": ["external_link_without_preview_metadata", "external_preview_without_image", "x_status_link_without_quote_body"],
+      "oracleDiffs": ["local_exposes_raw_tco_text"],
+      "evidenceRequired": ["local link facts", "Original link facts", "contentful screenshots"],
+      "observedXBehavior": "X does not expose raw t.co tokens as the primary reading experience when it can render display URLs, media, quote cards, or preview cards.",
+      "readerRule": "Hide media/quote status links when their rich object is rendered, and replace ordinary inline links with readable display labels."
+    },
+    {
+      "id": "external_preview_card_rendering",
+      "status": "accepted",
+      "confidence": "medium",
+      "inventoryBuckets": ["external-preview", "external-no-preview"],
+      "inventoryRisks": ["external_link_without_preview_metadata", "external_preview_without_image"],
+      "oracleDiffs": ["local_renders_multiple_external_preview_cards", "original_has_external_preview_local_missing_card"],
+      "evidenceRequired": ["local link-card facts", "Original card.wrapper facts", "contentful screenshots"],
+      "observedXBehavior": "For ordinary no-media posts with several external URLs, X renders one primary external preview card rather than a stack of cards. When Original X has an external preview card, the Reader should not reduce the post to only a naked inline URL.",
+      "readerRule": "Render at most one primary external preview card per no-media post. Keep additional external URLs as inline display links or compact fallback chips so information is preserved without over-rendering."
+    },
+    {
+      "id": "x_article_card_rendering",
+      "status": "accepted",
+      "confidence": "medium",
+      "inventoryBuckets": ["x-article-link", "quote-x-article-link"],
+      "inventoryRisks": ["main_x_article_link", "quote_x_article_link", "quote_x_article_card_likely"],
+      "oracleDiffs": ["original_has_x_article_card_local_has_placeholder", "original_has_main_x_article_local_has_raw_link"],
+      "evidenceRequired": ["local quote/link facts", "Original article/card/media facts", "contentful screenshots"],
+      "observedXBehavior": "Original X can render x.com/i/article links as rich Article cards inside the main post or quoted post even when the API only exposes a URL entity.",
+      "readerRule": "Render X Article links as X-like article preview cards when structured or authenticated evidence-backed preview metadata exists. If metadata is absent, keep the sample as a fidelity failure or blocked evidence case instead of treating a raw article URL as acceptable."
+    }
+  ]
+}

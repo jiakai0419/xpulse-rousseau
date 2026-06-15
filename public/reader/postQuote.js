@@ -10,6 +10,7 @@ import { renderPostText } from "./postText.js";
 
 export function renderQuotedPost(post, options = {}) {
   const renderPostMedia = options.renderPostMedia ?? (() => "");
+  const renderPostLinks = options.renderPostLinks ?? (() => "");
 
   if (post.referencedPostType !== "quoted") {
     return "";
@@ -53,6 +54,7 @@ export function renderQuotedPost(post, options = {}) {
       </div>
       ${quoteText ? `<p class="quote-text">${quoteText}</p>` : ""}
       ${renderPostMedia(quote)}
+      ${renderPostLinks(quote)}
     </article>
   `;
 }

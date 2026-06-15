@@ -108,6 +108,7 @@ test("renderQuotedPost renders quoted post body, author, media, and escaped fiel
     media: [{ mediaKey: "3_1" }],
   });
   const calls: string[] = [];
+  const linkCalls: string[] = [];
   const html = withDocument(() =>
     renderQuotedPost(
       post({
@@ -119,11 +120,16 @@ test("renderQuotedPost renders quoted post body, author, media, and escaped fiel
           calls.push(mediaPost.id);
           return `<div class="media-stub">${mediaPost.media.length}</div>`;
         },
+        renderPostLinks(linkPost) {
+          linkCalls.push(linkPost.id);
+          return `<div class="link-stub">${linkPost.links.length}</div>`;
+        },
       },
     ),
   );
 
   assert.deepEqual(calls, ["quote"]);
+  assert.deepEqual(linkCalls, ["quote"]);
   assert.match(html, /quote-card quote-card-has-media/);
   assert.match(html, /data-quote-url="https:\/\/x\.com\/quoted\/status\/1\?x=&lt;bad&gt;"/);
   assert.match(html, /src="https:\/\/img\.example\/q\.png"/);
@@ -132,9 +138,10 @@ test("renderQuotedPost renders quoted post body, author, media, and escaped fiel
   assert.match(html, /datetime="2026-06-10T12:34:00.000Z"/);
   assert.match(html, /<p class="quote-text">Quote text &lt;unsafe&gt;<\/p>/);
   assert.match(html, /<div class="media-stub">1<\/div>/);
+  assert.match(html, /<div class="link-stub">0<\/div>/);
 });
 
-test("renderQuotedPost omits the text paragraph when quoted text is hidden", () => {
+test("renderQuotedPost omits hidden link text while rendering quoted link previews", () => {
   const html = renderQuotedPost(
     post({
       referencedPostType: "quoted",
@@ -151,7 +158,14 @@ test("renderQuotedPost omits the text paragraph when quoted text is hidden", () 
         ],
       }),
     }),
+    {
+      renderPostLinks(linkPost) {
+        return `<div class="quote-link-preview">${linkPost.links?.[0]?.preview?.title}</div>`;
+      },
+    },
   );
 
   assert.doesNotMatch(html, /quote-text/);
+  assert.match(html, /quote-link-preview/);
+  assert.match(html, /Article/);
 });

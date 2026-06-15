@@ -1,8 +1,9 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { chromium } from "playwright";
 import { getHost, spawnServer, waitForHealth } from "./env-utils.mjs";
 import { buildSamplePool, readerDisplayPost, renderBucketDefinitions } from "./render-buckets.mjs";
+import { inspectPngScreenshot } from "./screenshot-probe.mjs";
 
 const sourceStorePath = process.env.DISPLAY_AUDIT_RUN_STORE || ".data/runs.json";
 const maxSamples = positiveInt(process.env.DISPLAY_AUDIT_MAX, 48);
@@ -13,11 +14,14 @@ const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outputDir = process.env.DISPLAY_AUDIT_DIR || `.data/render-audit/display-fidelity-${timestamp}`;
 const auditStorePath = join(outputDir, "audit-runs.json");
 const useAuthProfile = process.env.DISPLAY_AUDIT_AUTH_PROFILE === "1";
-const loginOnly = process.env.DISPLAY_AUDIT_LOGIN_ONLY === "1";
+const skipOriginal = process.env.DISPLAY_AUDIT_SKIP_ORIGINAL === "1";
 const authProfileDir = process.env.DISPLAY_AUDIT_AUTH_PROFILE_DIR || ".data/x-audit-browser-profile";
 const authBrowserChannel = process.env.DISPLAY_AUDIT_AUTH_CHANNEL || "chrome";
 const headless = useAuthProfile ? process.env.DISPLAY_AUDIT_HEADLESS === "1" : process.env.DISPLAY_AUDIT_HEADFUL !== "1";
 const localHeadless = useAuthProfile ? process.env.DISPLAY_AUDIT_LOCAL_HEADFUL !== "1" : headless;
+const authTimeoutMs = positiveInt(process.env.DISPLAY_AUDIT_AUTH_TIMEOUT_MS, 25_000);
+const originalTimeoutMs = positiveInt(process.env.DISPLAY_AUDIT_ORIGINAL_TIMEOUT_MS, 45_000);
+const screenshotRetries = positiveInt(process.env.DISPLAY_AUDIT_SCREENSHOT_RETRIES, 2);
 const browserOptions = {
   viewport: { width: 1280, height: 900 },
   deviceScaleFactor: 1,
@@ -412,6 +416,26 @@ async function waitForOriginalMedia(page, postId) {
   });
 }
 
+async function waitForOriginalArticle(page, postId) {
+  const targetArticle = page.locator(originalTweetSelector(postId)).first();
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < originalTimeoutMs) {
+    if (await targetArticle.isVisible().catch(() => false)) {
+      return targetArticle;
+    }
+
+    const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 2000) ?? "").catch(() => "");
+    if (/See what's happening|Log in|Sign in|Continue with phone|Continue with Google|Don.t miss what.s happening/i.test(pageText)) {
+      throw new Error("original_requires_auth");
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  throw new Error(`Timed out waiting for Original article status/${postId}.`);
+}
+
 function compareFacts(sample, local, original) {
   const issues = [];
   const localVideoCount = local.videos.length;
@@ -466,16 +490,15 @@ async function waitForXLoggedIn(page, timeoutMs) {
   const loggedInSelectors = [
     '[data-testid="SideNav_AccountSwitcher_Button"]',
     '[data-testid="AppTabBar_Home_Link"]',
-    '[data-testid="primaryColumn"]',
-    'a[href="/home"]',
+    'a[href="/home"][aria-label*="Home"]',
     'a[href="/settings/account"]',
     'a[aria-label*="Profile"]',
   ];
 
   while (Date.now() - startedAt < timeoutMs) {
     const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 2000) ?? "").catch(() => "");
-    if (/browser or app may not be secure|Couldn't sign you in|Couldn.t sign you in/i.test(pageText)) {
-      throw new Error("X audit profile login was blocked by Google SSO. Use the user's already-authenticated Chrome for login-required Original audits.");
+    if (/temporarily limited your login|browser or app may not be secure|Couldn't sign you in|Couldn.t sign you in/i.test(pageText)) {
+      throw new Error("X audit profile login was blocked by X/Google login risk controls. Stop retrying this path for now; use local replay checks or manual Original inspection from an already-authenticated Chrome window.");
     }
 
     for (const selector of loggedInSelectors) {
@@ -497,21 +520,14 @@ async function ensureXAuditProfile(context) {
   try {
     await page.goto("https://x.com/home", { waitUntil: "domcontentloaded", timeout: 45_000 });
 
-    if (await waitForXLoggedIn(page, 5000)) {
+    console.log(`Checking X audit browser profile authentication (${Math.round(authTimeoutMs / 1000)}s timeout)...`);
+
+    if (await waitForXLoggedIn(page, authTimeoutMs)) {
+      console.log("OK X audit profile is authenticated.");
       return;
     }
 
-    if (headless) {
-      throw new Error("X audit profile is not authenticated. Run `npm run display:audit:login` once in a headed browser.");
-    }
-
-    console.log("X audit profile needs login. Complete X login in the opened browser window; waiting up to 10 minutes...");
-
-    if (!(await waitForXLoggedIn(page, 10 * 60 * 1000))) {
-      throw new Error("Timed out waiting for X audit profile login.");
-    }
-
-    console.log("OK X audit profile is authenticated.");
+    throw new Error("X audit profile is not authenticated. Automated login is unavailable in this environment; do not retry `display:audit:login`.");
   } finally {
     await page.close().catch(() => {});
   }
@@ -528,8 +544,13 @@ async function openXContext() {
     headless,
     channel: authBrowserChannel,
   });
-  await ensureXAuditProfile(context);
-  return context;
+  try {
+    await ensureXAuditProfile(context);
+    return context;
+  } catch (error) {
+    await context.close().catch(() => {});
+    throw error;
+  }
 }
 
 function markdownReport(report) {
@@ -577,43 +598,44 @@ async function captureOriginal(context, sample, index) {
   const screenshotPath = join(outputDir, `${slug}-x.png`);
 
   try {
-    await page.goto(sample.displayPost.url, { waitUntil: "domcontentloaded", timeout: 45_000 });
-    const targetArticle = page.locator(originalTweetSelector(sample.displayPost.id)).first();
-    await targetArticle.waitFor({ state: "visible", timeout: 35_000 });
+    await page.goto(sample.displayPost.url, { waitUntil: "domcontentloaded", timeout: originalTimeoutMs });
+    const targetArticle = await waitForOriginalArticle(page, sample.displayPost.id);
     await waitForOriginalMedia(page, sample.displayPost.id);
-    const article = page.locator(originalTweetSelector(sample.displayPost.id)).first();
-    await article.screenshot({ path: screenshotPath });
+    let screenshotProbe;
+    for (let attempt = 0; attempt <= screenshotRetries; attempt += 1) {
+      await targetArticle.scrollIntoViewIfNeeded();
+      await targetArticle.screenshot({ path: screenshotPath });
+      screenshotProbe = inspectPngScreenshot(screenshotPath);
+
+      if (!screenshotProbe.blank) {
+        break;
+      }
+
+      if (attempt < screenshotRetries) {
+        await page.waitForTimeout(1000 + attempt * 750);
+      }
+    }
     const facts = await collectOriginalFacts(page, sample.displayPost.id);
     await page.close();
-    return { screenshotPath, facts };
+    return { screenshotPath, facts, screenshotProbe };
   } catch (error) {
     const rawMessage = error instanceof Error ? error.message : String(error);
     const pageText = await page.evaluate(() => document.body?.innerText?.slice(0, 2000) ?? "").catch(() => "");
-    const message = /See what's happening|Log in|Sign in|Continue with phone|Continue with Google/i.test(pageText)
-      ? `original_requires_auth:${rawMessage}`
-      : rawMessage;
+    let message = rawMessage;
+    if (rawMessage !== "original_requires_auth" && /See what's happening|Log in|Sign in|Continue with phone|Continue with Google/i.test(pageText)) {
+      message = `original_requires_auth:${rawMessage}`;
+    }
     try {
       await page.screenshot({ path: screenshotPath, fullPage: true });
     } catch {
       // Keep the original navigation error.
     }
     await page.close();
-    return { screenshotPath, error: message, facts: undefined };
+    return { screenshotPath, error: message, facts: undefined, screenshotProbe: undefined };
   }
 }
 
 async function main() {
-  if (loginOnly) {
-    if (!useAuthProfile) {
-      throw new Error("DISPLAY_AUDIT_LOGIN_ONLY requires DISPLAY_AUDIT_AUTH_PROFILE=1.");
-    }
-
-    const loginContext = await openXContext();
-    await loginContext.close();
-    console.log(`OK X audit browser profile is ready: ${authProfileDir}`);
-    return;
-  }
-
   mkdirSync(outputDir, { recursive: true });
   const store = readRunStore(sourceStorePath);
   const requestedRunIds = new Set((process.env.DISPLAY_AUDIT_RUN_IDS ?? "").split(",").map((id) => id.trim()).filter(Boolean));
@@ -672,9 +694,10 @@ async function main() {
 
     localBrowser = await chromium.launch({ headless: localHeadless });
     localContext = await localBrowser.newContext(browserOptions);
-    xContext = useAuthProfile ? await openXContext() : await localBrowser.newContext(xBrowserOptions);
+    xContext = skipOriginal ? undefined : useAuthProfile ? await openXContext() : await localBrowser.newContext(xBrowserOptions);
     const localPage = await localContext.newPage();
-    await localPage.goto(`http://${host}:${port}`, { waitUntil: "networkidle" });
+    await localPage.goto(`http://${host}:${port}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await localPage.locator("#refresh-button").waitFor({ state: "visible", timeout: 15_000 });
 
     const sourceLabel = await localPage.locator("#source-toggle-label").textContent({ timeout: 10_000 });
     if (sourceLabel === "Online") {
@@ -700,8 +723,15 @@ async function main() {
       await waitForLocalMedia(card);
       await card.screenshot({ path: localScreenshot });
       const localFacts = await collectLocalFacts(card);
-      const original = await captureOriginal(xContext, sample, index + 1);
-      const issues = original.facts ? compareFacts(sample, localFacts, original.facts) : [`original_capture_failed:${original.error}`];
+      const original = skipOriginal ? { screenshotPath: undefined, facts: undefined, error: undefined } : await captureOriginal(xContext, sample, index + 1);
+      const issues = skipOriginal
+        ? []
+        : original.facts
+          ? [
+              ...compareFacts(sample, localFacts, original.facts),
+              ...(original.screenshotProbe?.blank ? [`original_screenshot_blank:${original.screenshotProbe.reason}`] : []),
+            ]
+          : [`original_capture_failed:${original.error}`];
 
       reportSamples.push({
         index: index + 1,
@@ -721,6 +751,7 @@ async function main() {
         localFacts,
         originalFacts: original.facts,
         originalError: original.error,
+        originalScreenshotProbe: original.screenshotProbe,
       });
 
       console.log(
@@ -748,7 +779,9 @@ async function main() {
     console.log(`OK display fidelity audit: ${samples.length} samples. Report: ${join(outputDir, "report.md")}`);
 
     await localContext.close();
-    await xContext.close();
+    if (xContext) {
+      await xContext.close();
+    }
   } catch (error) {
     if (serverOutput.trim()) {
       console.error(serverOutput.trim());

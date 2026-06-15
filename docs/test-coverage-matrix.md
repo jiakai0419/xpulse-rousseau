@@ -31,8 +31,12 @@ This matrix maps V1 accepted behavior to the tests or audit commands that protec
 | Usage is one action receipt, not global accumulation | `tests/unit/usage.test.ts` | Constructed usage records | Covered |
 | Run Trace records input, filtering, dedupe, seen, scoring, selection, and translation evidence | `tests/unit/pipeline.test.ts`, `tests/unit/replay.test.ts` | Constructed domain posts | Covered |
 | Reader rendering sample coverage is broad enough to avoid Top-7-only conclusions | `npm run render:coverage` | Saved X-derived live runs and trace input posts | Coverage inventory |
+| Reader display gaps are inventoried before changing X-like rendering rules | `npm run display:inventory` | Saved and optionally freshly fetched X-derived posts, with local screenshots | Gap inventory |
+| Original X screenshots/facts are captured as mandatory reusable evidence | `npm run display:original-cache` | Batch-captured Original X evidence from authenticated normal Chrome | Evidence cache |
+| X-like display diffs are judged by evidence, not by rules self-validating | `npm run display:oracle` | Display inventory plus cached Original X screenshots/facts | Diff oracle |
+| X rendering rules point back to the evidence map instead of self-validating | `npm run display:rule-ledger` | Checked-in rule ledger referencing Inventory buckets/risks and Oracle diff classes | Explanation ledger |
 | X-like reader rendering for retweets, quote cards, media, videos, previews, action row, and Signal | `npm run browser:smoke`, `npm run display:regression` | Saved X-derived live runs | Covered locally |
-| Local Reader screenshots are compared with Original X pages | `npm run display:audit` or `npm run display:audit:auth` | Saved X-derived live runs plus live Original X pages | Audit guard |
+| Local Reader screenshots are prepared for Original X comparison | `npm run display:audit`, or `DISPLAY_AUDIT_SKIP_ORIGINAL=1 npm run display:audit` when login walls block automation | Saved X-derived live runs plus manual Original X inspection from authenticated Chrome when needed | Audit guard |
 | Distribution-outside display validation uses fresh Online Pulse | `FRESH_PULSE_RUNS=3 npm run fresh:audit` | Newly fetched X/OpenAI runs | Costful release guard |
 
 ## Known Refactor Targets
@@ -64,6 +68,11 @@ Pre-refactor baseline:
 
 ```bash
 npm run render:coverage
+npm run display:inventory
+DISPLAY_ORIGINAL_CACHE_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:original-cache
+npm run display:rule-ledger
+DISPLAY_ORACLE_REQUIRE_ALL=1 DISPLAY_ORACLE_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:oracle
+DISPLAY_VISUAL_REVIEW_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:visual-review
 npm run verify:refactor
 npm run test:coverage
 ```
@@ -79,5 +88,9 @@ DISPLAY_AUDIT_MAX=42 DISPLAY_AUDIT_PER_BUCKET=4 npm run display:audit
 Release-grade distribution-outside validation:
 
 ```bash
+DISPLAY_INVENTORY_FRESH=1 DISPLAY_INVENTORY_FRESH_TARGET=100 npm run display:inventory
+npm run display:original-cache
+npm run display:rule-ledger
+DISPLAY_ORACLE_REQUIRE_ALL=1 npm run display:oracle
 FRESH_PULSE_RUNS=3 npm run fresh:audit
 ```

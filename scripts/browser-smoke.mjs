@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { chromium } from "playwright";
+import { linkTreatment, normalizedPostLinks } from "../public/reader/linkRules.js";
 import { getHost, spawnServer, waitForHealth } from "./env-utils.mjs";
 
 const host = getHost();
@@ -62,67 +63,8 @@ function rendersMedia(media) {
   return true;
 }
 
-function linkHref(link) {
-  return link.unwoundUrl ?? link.expandedUrl ?? link.url ?? "";
-}
-
-function hasUsefulLinkPreview(link) {
-  return Boolean((link.preview?.images ?? []).some((image) => image.url) || link.preview?.title || link.preview?.description);
-}
-
-function isMediaLink(link) {
-  if (link.mediaKey) {
-    return true;
-  }
-
-  const value = `${link.displayUrl ?? ""} ${link.expandedUrl ?? ""} ${link.unwoundUrl ?? ""} ${link.url ?? ""}`.toLowerCase();
-
-  return value.includes("pic.x.com") || value.includes("/photo/") || value.includes("/video/") || value.includes("pbs.twimg.com/media");
-}
-
-function isXStatusLink(link) {
-  try {
-    const url = new URL(linkHref(link));
-    const host = url.hostname.replace(/^www\./, "").toLowerCase();
-
-    return (host === "x.com" || host === "twitter.com") && /\/status\/\d+/.test(url.pathname);
-  } catch {
-    return false;
-  }
-}
-
-function isReferencedStatusLink(post, link) {
-  if (isMediaLink(link)) {
-    return false;
-  }
-
-  if (post.referencedPostType !== "quoted") {
-    return false;
-  }
-
-  if (post.referencedPost?.url && linkHref(link).startsWith(post.referencedPost.url)) {
-    return true;
-  }
-
-  return isXStatusLink(link);
-}
-
-function shouldRenderPreviewCard(post, link) {
-  if (!hasUsefulLinkPreview(link)) {
-    return false;
-  }
-
-  const hasAttachedVideo = (post.media ?? []).some((media) => media.type === "video" || media.type === "animated_gif");
-
-  if (hasAttachedVideo) {
-    return false;
-  }
-
-  if (post.media?.length && post.referencedPostType === "quoted") {
-    return false;
-  }
-
-  return !isReferencedStatusLink(post, link);
+function expectedPreviewCardCount(post) {
+  return normalizedPostLinks(post).filter((link) => linkTreatment(post, link) === "preview").length;
 }
 
 const expectedMediaItems = sourceRun.selectedPosts.reduce((count, item) => {
@@ -174,8 +116,9 @@ const expectedQuoteCardsWithMedia = sourceRun.selectedPosts.filter((item) => {
 }).length;
 const expectedLinkCards = sourceRun.selectedPosts.reduce((count, item) => {
   const displayPost = readerDisplayPost(item.post);
+  const quotedPost = displayPost.referencedPostType === "quoted" ? displayPost.referencedPost : undefined;
 
-  return count + (displayPost.links ?? []).filter((link) => shouldRenderPreviewCard(displayPost, link)).length;
+  return count + expectedPreviewCardCount(displayPost) + (quotedPost ? expectedPreviewCardCount(quotedPost) : 0);
 }, 0);
 const child = spawnServer({
   host,
@@ -351,6 +294,23 @@ try {
 
     if (!videoState.src.includes("/api/media/proxy?")) {
       throw new Error(`Expected inline X video to use local media proxy, found ${videoState.src}.`);
+    }
+
+    const badVideoFit = await page.locator(".media-grid.media-count-1 .media-item video").evaluateAll((videos) =>
+      videos
+        .map((video) => {
+          const style = getComputedStyle(video);
+
+          return {
+            objectFit: style.objectFit,
+            backgroundColor: style.backgroundColor,
+          };
+        })
+        .filter((style) => style.objectFit !== "contain" || style.backgroundColor !== "rgb(0, 0, 0)"),
+    );
+
+    if (badVideoFit.length) {
+      throw new Error(`Expected single inline X videos to fit inside black media frames without cropping, found ${JSON.stringify(badVideoFit)}.`);
     }
   }
 

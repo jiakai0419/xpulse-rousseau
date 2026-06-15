@@ -132,6 +132,10 @@ export function linkTokens(link) {
   return Array.from(new Set([link.url, link.expandedUrl, link.unwoundUrl].filter(Boolean)));
 }
 
+function linkKey(link) {
+  return linkTokens(link).join("|") || linkHref(link);
+}
+
 export function shouldRenderPreviewCard(post, link) {
   if (!hasUsefulLinkPreview(link)) {
     return false;
@@ -144,6 +148,16 @@ export function shouldRenderPreviewCard(post, link) {
   return true;
 }
 
+export function primaryPreviewLink(post) {
+  return normalizedPostLinks(post).find((link) => shouldRenderPreviewCard(post, link));
+}
+
+export function isPrimaryPreviewLink(post, link) {
+  const primary = primaryPreviewLink(post);
+
+  return Boolean(primary) && linkKey(primary) === linkKey(link);
+}
+
 export function linkTreatment(post, link) {
   if (post.media?.length && isMediaLink(link)) {
     return "media";
@@ -153,18 +167,36 @@ export function linkTreatment(post, link) {
     return "quote";
   }
 
-  if (shouldRenderPreviewCard(post, link)) {
+  if (shouldRenderPreviewCard(post, link) && isPrimaryPreviewLink(post, link)) {
     return "preview";
   }
 
   return "inline";
 }
 
+export function linkShouldAppearInText(post, link) {
+  const treatment = linkTreatment(post, link);
+
+  if (treatment === "inline") {
+    return true;
+  }
+
+  if (treatment !== "preview") {
+    return false;
+  }
+
+  const text = String(post.text ?? "");
+
+  return linkTokens(link).some((token) =>
+    findTokenRanges(text, token).some((range) => text.slice(range.end).trim().length > 0),
+  );
+}
+
 export function textWithoutHiddenPostLinks(text, post) {
   let output = String(text ?? "");
   const hiddenUrls = new Set(
     normalizedPostLinks(post)
-      .filter((link) => linkTreatment(post, link) !== "inline")
+      .filter((link) => !linkShouldAppearInText(post, link))
       .flatMap(linkTokens),
   );
 

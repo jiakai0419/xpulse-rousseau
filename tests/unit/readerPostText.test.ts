@@ -143,6 +143,32 @@ test("renderPostText hides media and quoted-post links while keeping ordinary me
   assert.doesNotMatch(html, /https:\/\/t\.co\/quote/);
 });
 
+test("renderPostText keeps a preview link inline when more body text follows it", () => {
+  const html = withDocument(() =>
+    renderPostText(
+      post({
+        text: "GLM Coding Plan users.\nhttps://t.co/docs\n\nAs our new flagship model...",
+        links: [
+          {
+            url: "https://t.co/docs",
+            expandedUrl: "https://docs.z.ai/devpack/latest",
+            displayUrl: "docs.z.ai/devpack/latest...",
+            preview: {
+              title: "How to Switch Models",
+            },
+          },
+        ],
+      }),
+    ),
+  );
+
+  assert.equal(
+    html,
+    'GLM Coding Plan users.\n<a class="tweet-text-link" href="https://docs.z.ai/devpack/latest" target="_blank" rel="noreferrer">docs.z.ai/devpack/latest...</a>\n\nAs our new flagship model...',
+  );
+  assert.doesNotMatch(html, /https:\/\/t\.co\/docs/);
+});
+
 test("renderPostText escapes plain text and preserves line breaks", () => {
   const html = withDocument(() =>
     renderPostText(

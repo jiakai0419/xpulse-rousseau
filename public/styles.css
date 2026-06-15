@@ -857,6 +857,10 @@ button {
   background: #000;
 }
 
+.media-count-1 .media-item video {
+  object-fit: contain;
+}
+
 .media-button:hover img,
 .media-button:hover video {
   filter: brightness(0.94);
