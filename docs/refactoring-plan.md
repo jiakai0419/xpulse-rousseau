@@ -185,6 +185,8 @@ npm run test:coverage
 - Reader quote renderer: quoted-post placeholder and quote-card rendering moved to `public/reader/postQuote.js` with unit coverage while media rendering remains a caller-supplied dependency.
 - Reader post media renderer: media grid HTML, viewer data attributes, inline video tags, and duration labels moved to `public/reader/postMedia.js` with unit coverage while media viewer behavior remains in `public/app.js`.
 - Reader post composer: full post-card assembly moved to `public/reader/post.js` with integration-level unit coverage, leaving `public/app.js` focused on app state, API calls, event wiring, and media viewer behavior.
+- X field profile boundary: reader-oriented X expansions and field lists moved to `src/services/x/fieldProfile.ts`, protected by tests that assert the requested profile includes note tweets, URL entities, referenced-tweet media, media variants, profile images, and metrics.
+- X normalization boundary: X API response types moved to `src/services/x/apiTypes.ts`, and pure X payload normalization moved to `src/services/x/normalize.ts` with tests covering note text, URL preview evidence, media variants, metrics, quoted posts, missing-reference collection, and attachment of lookup results.
 
 ## Not Yet Approved
 
