@@ -1,21 +1,15 @@
-import type { Author, ReferencedPost, TimelinePost, UsageRecord } from "../../domain/tweet.ts";
+import type { Author, TimelinePost, UsageRecord } from "../../domain/tweet.ts";
 import type { XMeResponse, XTimelineResponse } from "./apiTypes.ts";
+import { enrichMissingReferencedPosts } from "./enrichment.ts";
 import {
   X_READER_EXPANSIONS,
   X_READER_MEDIA_FIELDS,
   X_READER_TWEET_FIELDS,
   X_READER_USER_FIELDS,
   X_TIMELINE_ENDPOINT,
-  X_TWEET_LOOKUP_ENDPOINT,
 } from "./fieldProfile.ts";
-import {
-  attachReferencedPosts,
-  collectMissingReferencedIds,
-  indexesFromPayload,
-  postsFromPayload,
-  referencedPostFromPost,
-  uniquePosts,
-} from "./normalize.ts";
+import { postsFromPayload, uniquePosts } from "./normalize.ts";
+import { rateLimitFromResponse } from "./rateLimit.ts";
 import type { XRawTimelineSnapshot } from "./rawSnapshotStore.ts";
 
 export type XTimelineClientOptions = {
@@ -28,131 +22,6 @@ export type XTimelineClientOptions = {
   onRawSnapshot?: (snapshot: XRawTimelineSnapshot) => void | Promise<void>;
   onUsage?: (usage: UsageRecord) => void;
 };
-
-function numberHeader(response: Response, name: string): number | undefined {
-  const value = response.headers.get(name);
-
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function resetAtHeader(response: Response): string | undefined {
-  const reset = numberHeader(response, "x-rate-limit-reset");
-  return reset ? new Date(reset * 1000).toISOString() : undefined;
-}
-
-function buildTweetLookupUrl(ids: string[]): URL {
-  const url = new URL("https://api.x.com/2/tweets");
-
-  url.searchParams.set("ids", ids.join(","));
-  url.searchParams.set("expansions", X_READER_EXPANSIONS);
-  url.searchParams.set("tweet.fields", X_READER_TWEET_FIELDS);
-  url.searchParams.set("user.fields", X_READER_USER_FIELDS);
-  url.searchParams.set("media.fields", X_READER_MEDIA_FIELDS);
-
-  return url;
-}
-
-async function fetchTweetLookupBatch(options: XTimelineClientOptions, ids: string[], page: number): Promise<{
-  referencedPostsById: Map<string, ReferencedPost>;
-  rateLimit?: UsageRecord["rateLimit"];
-}> {
-  const url = buildTweetLookupUrl(ids);
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${options.accessToken}`,
-    },
-  });
-  const responseText = await response.text();
-  let payload: XTimelineResponse | { raw: string } = {};
-
-  try {
-    payload = responseText ? JSON.parse(responseText) as XTimelineResponse : {};
-  } catch {
-    payload = { raw: responseText };
-  }
-  const rateLimit = {
-    limit: numberHeader(response, "x-rate-limit-limit"),
-    remaining: numberHeader(response, "x-rate-limit-remaining"),
-    resetAt: resetAtHeader(response),
-  };
-
-  await options.onRawSnapshot?.({
-    id: `xraw_${Date.now()}_lookup_${page}`,
-    createdAt: new Date().toISOString(),
-    endpoint: X_TWEET_LOOKUP_ENDPOINT,
-    query: Object.fromEntries(url.searchParams.entries()),
-    page,
-    mode: "lookup",
-    status: response.status,
-    rateLimit,
-    payload,
-  });
-
-  if (!response.ok) {
-    throw new Error(`X tweet lookup request failed with ${response.status}: ${responseText}`);
-  }
-
-  if (!("data" in payload) && !("includes" in payload)) {
-    return { referencedPostsById: new Map(), rateLimit };
-  }
-
-  const typedPayload = payload as XTimelineResponse;
-  const indexes = indexesFromPayload(typedPayload);
-  const referencedPostsById = new Map(
-    (typedPayload.data ?? []).map((post) => [post.id, referencedPostFromPost(post, indexes)]),
-  );
-
-  return { referencedPostsById, rateLimit };
-}
-
-async function enrichMissingReferencedPosts(options: XTimelineClientOptions, posts: TimelinePost[]): Promise<void> {
-  const requestedIds = new Set<string>();
-  let requestCount = 0;
-  let latestRateLimit: UsageRecord["rateLimit"];
-  let attachedCount = 0;
-  const requestedItemIds: string[] = [];
-
-  for (let depth = 0; depth < 3; depth += 1) {
-    const missingIds = collectMissingReferencedIds(posts).filter((id) => !requestedIds.has(id));
-
-    if (!missingIds.length) {
-      break;
-    }
-
-    for (let index = 0; index < missingIds.length; index += 100) {
-      const ids = missingIds.slice(index, index + 100);
-
-      ids.forEach((id) => requestedIds.add(id));
-      requestedItemIds.push(...ids);
-      const page = await fetchTweetLookupBatch(options, ids, requestCount + 1);
-      requestCount += 1;
-      latestRateLimit = page.rateLimit;
-      attachedCount += attachReferencedPosts(posts, page.referencedPostsById);
-    }
-  }
-
-  if (!requestCount) {
-    return;
-  }
-
-  options.onUsage?.({
-    provider: "x",
-    operation: "x.lookup",
-    label: "X tweet lookup",
-    method: "GET",
-    endpoint: X_TWEET_LOOKUP_ENDPOINT,
-    itemCount: attachedCount,
-    itemIds: requestedItemIds,
-    requestCount,
-    rateLimit: latestRateLimit,
-    createdAt: new Date().toISOString(),
-  });
-}
 
 function buildTimelineUrl(options: XTimelineClientOptions, params: { maxResults: number; sinceId?: string; paginationToken?: string }): URL {
   const url = new URL(`https://api.x.com/2/users/${options.userId}/timelines/reverse_chronological`);
@@ -197,11 +66,7 @@ async function fetchTimelinePage(options: XTimelineClientOptions, params: {
   } catch {
     payload = { raw: responseText };
   }
-  const rateLimit = {
-    limit: numberHeader(response, "x-rate-limit-limit"),
-    remaining: numberHeader(response, "x-rate-limit-remaining"),
-    resetAt: resetAtHeader(response),
-  };
+  const rateLimit = rateLimitFromResponse(response);
 
   await options.onRawSnapshot?.({
     id: `xraw_${Date.now()}_${params.mode}_${params.page}`,

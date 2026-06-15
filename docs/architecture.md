@@ -43,6 +43,8 @@ flowchart LR
 - `src/services/x/apiTypes.ts`: local types for the X API response shape consumed by V1.
 - `src/services/x/fieldProfile.ts`: reader-oriented X field, expansion, media, and user request profile.
 - `src/services/x/normalize.ts`: pure conversion from X API payloads into `TimelinePost` and nested referenced-post structures.
+- `src/services/x/enrichment.ts`: tweet lookup enrichment for missing referenced posts, including lookup raw snapshots and X usage records.
+- `src/services/x/rateLimit.ts`: shared X rate-limit header parsing for timeline and lookup calls.
 - `src/services/x/timelineCursor.ts`: best-effort freshness cursor for Online Pulse.
 - `src/services/x/rawSnapshotStore.ts`: local raw X timeline page evidence.
 - `src/services/replay/`: local replay from saved X runs/traces.
