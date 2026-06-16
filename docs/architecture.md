@@ -57,6 +57,7 @@ flowchart LR
 - `src/services/openai/`: shared OpenAI Responses API, operation helpers, and OpenAI Cache.
 - `src/services/pipeline/`: orchestration for one refresh run.
 - `src/services/pipeline/candidates.ts`: candidate preparation for ad filtering, duplicate filtering, Seen Ledger filtering, and trace input snapshots.
+- `src/services/pipeline/selection.ts`: scoring and author-diverse final selection for candidate posts.
 - `src/services/pipeline/commitRefreshRun.ts`: commit rule for saving completed runs and mutating Online-only state.
 - `src/services/trace/`: structured run evidence.
 - `src/services/storage/`: persistence abstraction.
