@@ -6,9 +6,8 @@ import { TRANSLATION_PROMPT_VERSION, translatePosts } from "../ai/translation.ts
 import { enrichSelectedPostLinkPreviews } from "../linkPreview/enrich.ts";
 import type { LinkPreviewCacheRepository } from "../linkPreview/cache.ts";
 import type { OpenAICacheRepository } from "../openai/cache.ts";
-import { SCORING_PROMPT_VERSION, rankPostsWithOpenAI } from "../scoring/openAIScoring.ts";
+import { SCORING_PROMPT_VERSION } from "../scoring/openAIScoring.ts";
 import type { SeenPostRepository } from "../seen/seenLedger.ts";
-import { selectTopByAuthorDiversity } from "../selection/authorDiversity.ts";
 import { cloneTimelinePost, createRunTrace } from "../trace/runTrace.ts";
 import { fetchHomeTimeline } from "../x/client.ts";
 import { buildXOAuthConfig, getFreshStoredXTokens } from "../x/oauth.ts";
@@ -16,6 +15,7 @@ import type { XRawSnapshotRepository } from "../x/rawSnapshotStore.ts";
 import type { TimelineCursorRepository } from "../x/timelineCursor.ts";
 import type { XTokenStore } from "../x/tokenStore.ts";
 import { prepareCandidatePosts } from "./candidates.ts";
+import { scoreAndSelectPosts } from "./selection.ts";
 
 export type RunRefreshOptions = {
   source?: "x";
@@ -201,17 +201,16 @@ export async function runRefresh(options: RunRefreshOptions = {}): Promise<Refre
     totalItems: candidatePreparation.candidates.length,
     model: scoringModel,
   });
-  const ranked = await rankPostsWithOpenAI(candidatePreparation.candidates, {
+  const { ranked, top } = await scoreAndSelectPosts(candidatePreparation.candidates, {
     apiKey,
     model: scoringModel,
+    selectedPostCount,
     batchSize: scoringBatchSize,
     cache: options.openAICache,
     now,
     onProgress: publishProgress,
     onUsage: recordUsage,
   });
-  const selection = selectTopByAuthorDiversity(ranked, selectedPostCount);
-  const top = selection.selected;
   publishProgress({
     stage: "translating",
     label: "Translating selected posts",
