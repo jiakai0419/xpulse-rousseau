@@ -2,8 +2,7 @@ import type { PostLink, ReferencedPost, RefreshProgress, RefreshRun, TimelinePos
 import { configuredOpenAIModels } from "../../config/openai.ts";
 import { normalizeWeights, SCORING_WEIGHTS } from "../../config/scoring.ts";
 import { selectedPostCountFromEnv } from "../../config/selection.ts";
-import { TRANSLATION_PROMPT_VERSION, translatePosts } from "../ai/translation.ts";
-import { enrichSelectedPostLinkPreviews } from "../linkPreview/enrich.ts";
+import { TRANSLATION_PROMPT_VERSION } from "../ai/translation.ts";
 import type { LinkPreviewCacheRepository } from "../linkPreview/cache.ts";
 import type { OpenAICacheRepository } from "../openai/cache.ts";
 import { SCORING_PROMPT_VERSION } from "../scoring/openAIScoring.ts";
@@ -15,6 +14,7 @@ import type { XRawSnapshotRepository } from "../x/rawSnapshotStore.ts";
 import type { TimelineCursorRepository } from "../x/timelineCursor.ts";
 import type { XTokenStore } from "../x/tokenStore.ts";
 import { prepareCandidatePosts } from "./candidates.ts";
+import { finalizeSelectedPosts } from "./finalization.ts";
 import { scoreAndSelectPosts } from "./selection.ts";
 
 export type RunRefreshOptions = {
@@ -211,42 +211,16 @@ export async function runRefresh(options: RunRefreshOptions = {}): Promise<Refre
     onProgress: publishProgress,
     onUsage: recordUsage,
   });
-  publishProgress({
-    stage: "translating",
-    label: "Translating selected posts",
-    detail: `Preparing to translate ${top.length} selected posts`,
-    processedItems: 0,
-    totalItems: top.length,
-    model: translationModel,
-  });
-  const translations = await translatePosts(top.map((item) => item.post), {
+  const { selectedPosts, translations } = await finalizeSelectedPosts(top, {
     apiKey,
     model: translationModel,
     batchSize: translationBatchSize,
     cache: options.openAICache,
+    linkPreviewCache: options.linkPreviewCache,
     now,
     onProgress: publishProgress,
     onUsage: recordUsage,
   });
-
-  const selectedPosts = top.map((item) => ({
-    ...item,
-    translation: translations.get(item.post.id),
-  }));
-
-  if (options.linkPreviewCache) {
-    publishProgress({
-      stage: "saving",
-      label: "Resolving link previews",
-      detail: `Resolving external preview cards for ${selectedPosts.length} selected posts`,
-      processedItems: 0,
-      totalItems: selectedPosts.length,
-    });
-    await enrichSelectedPostLinkPreviews(selectedPosts.map((item) => item.post), {
-      cache: options.linkPreviewCache,
-      now,
-    });
-  }
 
   const selectedPostById = new Map(selectedPosts.map((item) => [item.post.id, item.post]));
   const traceInputPosts = candidatePreparation.inputPosts.map((post) => {

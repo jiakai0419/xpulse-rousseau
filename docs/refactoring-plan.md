@@ -190,6 +190,7 @@ npm run test:coverage
 - X lookup enrichment boundary: missing referenced-post lookup, recursive attachment, lookup raw snapshots, and `x.lookup` usage records moved to `src/services/x/enrichment.ts` with direct unit coverage.
 - Refresh candidate preparation boundary: ad filtering, duplicate filtering, Seen Ledger filtering, candidate list construction, and trace input snapshots moved to `src/services/pipeline/candidates.ts` with unit coverage.
 - Refresh scoring/selection boundary: OpenAI candidate scoring and author-diverse final selection moved to `src/services/pipeline/selection.ts` with unit coverage.
+- Refresh selected-post finalization boundary: selected-post translation attachment and selected-post link preview enrichment moved to `src/services/pipeline/finalization.ts` with unit coverage.
 
 ## Not Yet Approved
 
