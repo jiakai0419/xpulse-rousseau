@@ -3,14 +3,11 @@ import { configuredOpenAIModels } from "../../config/openai.ts";
 import { normalizeWeights, SCORING_WEIGHTS } from "../../config/scoring.ts";
 import { selectedPostCountFromEnv } from "../../config/selection.ts";
 import { TRANSLATION_PROMPT_VERSION, translatePosts } from "../ai/translation.ts";
-import { dedupeTimelinePosts } from "../filtering/dedupe.ts";
-import { decideAdFilter, filterAds } from "../filtering/adFilter.ts";
 import { enrichSelectedPostLinkPreviews } from "../linkPreview/enrich.ts";
 import type { LinkPreviewCacheRepository } from "../linkPreview/cache.ts";
 import type { OpenAICacheRepository } from "../openai/cache.ts";
 import { SCORING_PROMPT_VERSION, rankPostsWithOpenAI } from "../scoring/openAIScoring.ts";
 import type { SeenPostRepository } from "../seen/seenLedger.ts";
-import { filterSeenPosts } from "../seen/seenLedger.ts";
 import { selectTopByAuthorDiversity } from "../selection/authorDiversity.ts";
 import { cloneTimelinePost, createRunTrace } from "../trace/runTrace.ts";
 import { fetchHomeTimeline } from "../x/client.ts";
@@ -18,6 +15,7 @@ import { buildXOAuthConfig, getFreshStoredXTokens } from "../x/oauth.ts";
 import type { XRawSnapshotRepository } from "../x/rawSnapshotStore.ts";
 import type { TimelineCursorRepository } from "../x/timelineCursor.ts";
 import type { XTokenStore } from "../x/tokenStore.ts";
+import { prepareCandidatePosts } from "./candidates.ts";
 
 export type RunRefreshOptions = {
   source?: "x";
@@ -186,8 +184,6 @@ export async function runRefresh(options: RunRefreshOptions = {}): Promise<Refre
 
   const { source, posts } = await loadTimeline({ ...options, now, onUsage: recordUsage });
   const runId = `run_${now.getTime()}`;
-  const inputSnapshot = posts.map(cloneTimelinePost);
-  const adDecisions = new Map(inputSnapshot.map((post) => [post.id, decideAdFilter(post)]));
   publishProgress({
     stage: "filtering",
     label: "Filtering",
@@ -195,20 +191,17 @@ export async function runRefresh(options: RunRefreshOptions = {}): Promise<Refre
     processedItems: posts.length,
     totalItems: posts.length,
   });
-  const adFiltered = filterAds(posts);
-  const deduped = dedupeTimelinePosts(adFiltered.kept);
-  const seenIdentities = await options.seenRepository?.identities();
-  const seenFiltered = seenIdentities ? filterSeenPosts(deduped.posts, seenIdentities) : { kept: deduped.posts, excluded: [] };
+  const candidatePreparation = await prepareCandidatePosts(posts, options.seenRepository);
 
   publishProgress({
     stage: "scoring",
     label: "Scoring",
-    detail: `Preparing to score ${seenFiltered.kept.length} candidate posts`,
+    detail: `Preparing to score ${candidatePreparation.candidates.length} candidate posts`,
     processedItems: 0,
-    totalItems: seenFiltered.kept.length,
+    totalItems: candidatePreparation.candidates.length,
     model: scoringModel,
   });
-  const ranked = await rankPostsWithOpenAI(seenFiltered.kept, {
+  const ranked = await rankPostsWithOpenAI(candidatePreparation.candidates, {
     apiKey,
     model: scoringModel,
     batchSize: scoringBatchSize,
@@ -257,7 +250,7 @@ export async function runRefresh(options: RunRefreshOptions = {}): Promise<Refre
   }
 
   const selectedPostById = new Map(selectedPosts.map((item) => [item.post.id, item.post]));
-  const traceInputPosts = inputSnapshot.map((post) => {
+  const traceInputPosts = candidatePreparation.inputPosts.map((post) => {
     const selectedPost = selectedPostById.get(post.id);
     const tracePost = cloneTimelinePost(post);
 
@@ -282,9 +275,9 @@ export async function runRefresh(options: RunRefreshOptions = {}): Promise<Refre
     source,
     stats: {
       fetched: posts.length,
-      adsExcluded: adFiltered.excluded.length,
-      duplicatesExcluded: deduped.duplicates.length,
-      seenExcluded: seenFiltered.excluded.length,
+      adsExcluded: candidatePreparation.adFiltered.excluded.length,
+      duplicatesExcluded: candidatePreparation.deduped.duplicates.length,
+      seenExcluded: candidatePreparation.seenFiltered.excluded.length,
       scored: ranked.length,
       selected: selectedPosts.length,
     },
@@ -312,10 +305,10 @@ export async function runRefresh(options: RunRefreshOptions = {}): Promise<Refre
         },
       },
       inputPosts: traceInputPosts,
-      adDecisions,
-      adExcluded: adFiltered.excluded,
-      dedupe: deduped,
-      seenExcluded: seenFiltered.excluded,
+      adDecisions: candidatePreparation.adDecisions,
+      adExcluded: candidatePreparation.adFiltered.excluded,
+      dedupe: candidatePreparation.deduped,
+      seenExcluded: candidatePreparation.seenFiltered.excluded,
       ranked,
       selected: top,
       translations,
