@@ -192,6 +192,7 @@ npm run test:coverage
 - Refresh scoring/selection boundary: OpenAI candidate scoring and author-diverse final selection moved to `src/services/pipeline/selection.ts` with unit coverage.
 - Refresh selected-post finalization boundary: selected-post translation attachment and selected-post link preview enrichment moved to `src/services/pipeline/finalization.ts` with unit coverage.
 - Refresh run assembly boundary: final `RefreshRun` stats and trace construction moved to `src/services/pipeline/runAssembly.ts` with unit coverage.
+- Refresh progress/usage boundary: per-refresh usage collection and progress publishing moved to `src/services/pipeline/progress.ts` with unit coverage.
 
 ## Not Yet Approved
 

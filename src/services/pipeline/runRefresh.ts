@@ -11,6 +11,7 @@ import type { TimelineCursorRepository } from "../x/timelineCursor.ts";
 import type { XTokenStore } from "../x/tokenStore.ts";
 import { prepareCandidatePosts } from "./candidates.ts";
 import { finalizeSelectedPosts } from "./finalization.ts";
+import { createRefreshProgressReporter } from "./progress.ts";
 import { assembleRefreshRun } from "./runAssembly.ts";
 import { scoreAndSelectPosts } from "./selection.ts";
 
@@ -108,30 +109,11 @@ export async function runRefresh(options: RunRefreshOptions = {}): Promise<Refre
   const scoringBatchSize = positiveIntegerFromEnv(env, "OPENAI_SCORING_BATCH_SIZE", 20);
   const translationBatchSize = positiveIntegerFromEnv(env, "OPENAI_TRANSLATION_BATCH_SIZE", 10);
   const selectedPostCount = selectedPostCountFromEnv(env);
-  const usageRecords: UsageRecord[] = [];
-  const publishProgress = (progress: Partial<RefreshProgress>): void => {
-    options.onProgress?.({
-      stage: progress.stage ?? "starting",
-      label: progress.label ?? "Preparing Pulse",
-      detail: progress.detail ?? "Preparing to start",
-      processedItems: progress.processedItems,
-      totalItems: progress.totalItems,
-      model: progress.model,
-      usage: [...usageRecords],
-      updatedAt: new Date().toISOString(),
-    });
-  };
-  const recordUsage = (usage: UsageRecord): void => {
-    usageRecords.push(usage);
-    options.onUsage?.(usage);
-    const isOpenAI = usage.provider === "openai";
-    publishProgress({
-      stage: usage.operation === "scoring" ? "scoring" : usage.operation === "translation" ? "translating" : usage.provider === "x" ? "loading" : "saving",
-      label: usage.label,
-      detail: isOpenAI ? `${usage.model}: input ${usage.inputTokens}, output ${usage.outputTokens}, total ${usage.totalTokens}` : `${usage.method ?? "GET"} ${usage.endpoint ?? "X API"} · ${usage.itemCount} items`,
-      model: usage.model,
-    });
-  };
+  const progressReporter = createRefreshProgressReporter({
+    onProgress: options.onProgress,
+    onUsage: options.onUsage,
+  });
+  const { publishProgress, recordUsage } = progressReporter;
 
   publishProgress({
     stage: "loading",
@@ -207,7 +189,7 @@ export async function runRefresh(options: RunRefreshOptions = {}): Promise<Refre
     ranked,
     selected: top,
     selectedPosts,
-    usage: usageRecords,
+    usage: progressReporter.usageRecords(),
     translations,
     selectedPostCount,
     configuredModels,
