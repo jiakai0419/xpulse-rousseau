@@ -33,31 +33,35 @@ For each refactor:
 
 Do not start the next refactor until the current one is merged or explicitly paused.
 
-## Current Gate Before The Next Refactor
+## Phase 1 Closeout Status
 
-Before starting the second refactor track, close and commit the current V1 stabilization slice. This slice includes Reader rendering extraction, display-fidelity tooling, screenshot-quality checks, the Original Evidence Cache, Display Oracle, Visual Review Pack, and related tests/docs.
+As of 2026-06-18, the first V1 stabilization/refactor sweep is complete. The completed sweep includes Reader rendering extraction, display-fidelity tooling, screenshot-quality checks, the Original Evidence Cache, Display Oracle, Visual Review Pack, X ingestion/normalization boundaries, and Refresh Pipeline boundaries.
 
-The immediate gate is:
+Accepted closeout verification:
 
 ```bash
+npm run verify:refactor
 DISPLAY_ORIGINAL_CACHE_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:original-cache
 DISPLAY_ORACLE_REQUIRE_ALL=1 DISPLAY_ORACLE_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:oracle
 DISPLAY_VISUAL_REVIEW_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:visual-review
 ```
 
-The accepted result from 2026-06-15 is:
+The accepted result from the closeout run is:
 
 ```txt
+OK refactor verification passed.
 OK original evidence cache: 225/225 valid, 0 missing, 0 invalid.
 OK display oracle: 225 samples.
 OK display visual review: 225 samples, 38 sheets.
 ```
 
-Do not begin the X ingestion/normalization refactor while this slice is still uncommitted or while the 225-row evidence baseline is blocked. This prevents the next refactor from mixing renderer/test-harness changes with upstream X data changes.
+Do not continue broad refactoring by inertia. The next large cleanup phase should start only after a new review of product needs, code pressure points, and test coverage. Small bug fixes, test improvements, and narrowly scoped product work can continue under the Refactor Execution Protocol.
 
 ## Top 3 Refactor Tracks
 
 ### 1. Reader Rendering Boundary
+
+**Status:** Completed in Phase 1.
 
 **Goal:** Split the browser reader into clearer rendering modules while preserving the current X-like UI.
 
@@ -100,6 +104,8 @@ FRESH_PULSE_RUNS=3 npm run fresh:audit
 
 ### 2. X Ingestion And Normalization Boundary
 
+**Status:** Completed in Phase 1.
+
 **Goal:** Make X API fetching, field selection, raw snapshot recording, and normalization easier to reason about.
 
 **Why this comes second:** Reader fidelity depends on the normalized X-derived shape. Once rendering boundaries are clearer, the upstream X data boundary should be made equally clear.
@@ -136,6 +142,8 @@ FRESH_PULSE_RUNS=3 npm run fresh:audit
 
 ### 3. Refresh Pipeline Boundary
 
+**Status:** Completed in Phase 1.
+
 **Goal:** Make one Online Pulse refresh read as a sequence of explicit stages instead of one dense orchestration function.
 
 **Why this comes third:** The pipeline is business-critical, but it already has stronger unit coverage than the UI. It should be cleaned after rendering and X ingestion boundaries are clearer.
@@ -167,6 +175,7 @@ npm run test:coverage
 
 ## Already Completed
 
+- Phase 1 refactor closeout: `npm run verify:refactor`, 225-sample Original Evidence Cache, strict Display Oracle, and Visual Review Pack passed on 2026-06-18.
 - CI baseline: GitHub Actions runs doctor, unit tests, and native coverage on push and pull request.
 - Refactor guard: `npm run verify:refactor` runs doctor, unit tests, replay smoke, browser smoke, and display regression.
 - Refresh job boundary: in-memory Pulse job state moved to `src/server/refreshJobs.ts` with unit coverage.
