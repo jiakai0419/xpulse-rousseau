@@ -1,13 +1,9 @@
-import type { PostLink, ReferencedPost, RefreshProgress, RefreshRun, TimelinePost, UsageRecord } from "../../domain/tweet.ts";
+import type { RefreshProgress, RefreshRun, TimelinePost, UsageRecord } from "../../domain/tweet.ts";
 import { configuredOpenAIModels } from "../../config/openai.ts";
-import { normalizeWeights, SCORING_WEIGHTS } from "../../config/scoring.ts";
 import { selectedPostCountFromEnv } from "../../config/selection.ts";
-import { TRANSLATION_PROMPT_VERSION } from "../ai/translation.ts";
 import type { LinkPreviewCacheRepository } from "../linkPreview/cache.ts";
 import type { OpenAICacheRepository } from "../openai/cache.ts";
-import { SCORING_PROMPT_VERSION } from "../scoring/openAIScoring.ts";
 import type { SeenPostRepository } from "../seen/seenLedger.ts";
-import { cloneTimelinePost, createRunTrace } from "../trace/runTrace.ts";
 import { fetchHomeTimeline } from "../x/client.ts";
 import { buildXOAuthConfig, getFreshStoredXTokens } from "../x/oauth.ts";
 import type { XRawSnapshotRepository } from "../x/rawSnapshotStore.ts";
@@ -15,6 +11,7 @@ import type { TimelineCursorRepository } from "../x/timelineCursor.ts";
 import type { XTokenStore } from "../x/tokenStore.ts";
 import { prepareCandidatePosts } from "./candidates.ts";
 import { finalizeSelectedPosts } from "./finalization.ts";
+import { assembleRefreshRun } from "./runAssembly.ts";
 import { scoreAndSelectPosts } from "./selection.ts";
 
 export type RunRefreshOptions = {
@@ -49,35 +46,6 @@ function positiveIntegerFromEnv(env: Record<string, string | undefined>, key: st
   }
 
   return Math.floor(parsed);
-}
-
-function linkIdentity(link: PostLink): string {
-  return [link.url, link.expandedUrl, link.displayUrl, link.mediaKey].filter(Boolean).join("|");
-}
-
-function copyLinkPreviewEvidence(target: TimelinePost | ReferencedPost, source: TimelinePost | ReferencedPost): void {
-  const sourceLinksByIdentity = new Map((source.links ?? []).map((link) => [linkIdentity(link), link]));
-
-  for (const targetLink of target.links ?? []) {
-    const sourceLink = sourceLinksByIdentity.get(linkIdentity(targetLink));
-
-    if (!sourceLink?.preview) {
-      continue;
-    }
-
-    targetLink.preview = {
-      ...sourceLink.preview,
-      images: sourceLink.preview.images?.map((image) => ({ ...image })),
-    };
-
-    if (sourceLink.unwoundUrl && !targetLink.unwoundUrl) {
-      targetLink.unwoundUrl = sourceLink.unwoundUrl;
-    }
-  }
-
-  if (target.referencedPost && source.referencedPost) {
-    copyLinkPreviewEvidence(target.referencedPost, source.referencedPost);
-  }
 }
 
 async function loadTimeline(options: RunRefreshOptions): Promise<{ source: "x"; posts: TimelinePost[] }> {
@@ -222,18 +190,6 @@ export async function runRefresh(options: RunRefreshOptions = {}): Promise<Refre
     onUsage: recordUsage,
   });
 
-  const selectedPostById = new Map(selectedPosts.map((item) => [item.post.id, item.post]));
-  const traceInputPosts = candidatePreparation.inputPosts.map((post) => {
-    const selectedPost = selectedPostById.get(post.id);
-    const tracePost = cloneTimelinePost(post);
-
-    if (selectedPost) {
-      copyLinkPreviewEvidence(tracePost, selectedPost);
-    }
-
-    return tracePost;
-  });
-
   publishProgress({
     stage: "saving",
     label: "Saving results",
@@ -242,49 +198,22 @@ export async function runRefresh(options: RunRefreshOptions = {}): Promise<Refre
     totalItems: selectedPosts.length,
   });
 
-  return {
-    id: runId,
+  return assembleRefreshRun({
+    runId,
     createdAt: now.toISOString(),
     source,
-    stats: {
-      fetched: posts.length,
-      adsExcluded: candidatePreparation.adFiltered.excluded.length,
-      duplicatesExcluded: candidatePreparation.deduped.duplicates.length,
-      seenExcluded: candidatePreparation.seenFiltered.excluded.length,
-      scored: ranked.length,
-      selected: selectedPosts.length,
-    },
+    fetchedPostCount: posts.length,
+    candidatePreparation,
+    ranked,
+    selected: top,
     selectedPosts,
     usage: usageRecords,
-    trace: createRunTrace({
-      runId,
-      createdAt: now.toISOString(),
-      source,
-      config: {
-        selectedPostCount,
-        scoringWeights: normalizeWeights(SCORING_WEIGHTS).map((weight) => ({
-          key: weight.key,
-          label: weight.label,
-          weight: weight.weight,
-        })),
-        configuredModels,
-        batches: {
-          scoring: scoringBatchSize,
-          translation: translationBatchSize,
-        },
-        promptVersions: {
-          scoring: SCORING_PROMPT_VERSION,
-          translation: TRANSLATION_PROMPT_VERSION,
-        },
-      },
-      inputPosts: traceInputPosts,
-      adDecisions: candidatePreparation.adDecisions,
-      adExcluded: candidatePreparation.adFiltered.excluded,
-      dedupe: candidatePreparation.deduped,
-      seenExcluded: candidatePreparation.seenFiltered.excluded,
-      ranked,
-      selected: top,
-      translations,
-    }),
-  };
+    translations,
+    selectedPostCount,
+    configuredModels,
+    batches: {
+      scoring: scoringBatchSize,
+      translation: translationBatchSize,
+    },
+  });
 }
