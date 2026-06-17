@@ -59,6 +59,7 @@ flowchart LR
 - `src/services/pipeline/candidates.ts`: candidate preparation for ad filtering, duplicate filtering, Seen Ledger filtering, and trace input snapshots.
 - `src/services/pipeline/selection.ts`: scoring and author-diverse final selection for candidate posts.
 - `src/services/pipeline/finalization.ts`: selected-post translation attachment and selected-post link preview enrichment.
+- `src/services/pipeline/progress.ts`: per-refresh progress publishing and usage receipt line collection for pipeline stages.
 - `src/services/pipeline/runAssembly.ts`: final `RefreshRun` stats and trace assembly from completed pipeline stage outputs.
 - `src/services/pipeline/commitRefreshRun.ts`: commit rule for saving completed runs and mutating Online-only state.
 - `src/services/trace/`: structured run evidence.
