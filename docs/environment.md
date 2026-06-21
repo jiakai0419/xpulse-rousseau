@@ -21,15 +21,15 @@ The Codex app also exposes an internal Node binary, but that binary did not incl
 ## Standard Commands
 
 ```bash
-npm run doctor
-npm run dev
-npm run smoke
-npm run browser:smoke
-npm test
-npm run stop
+npm run env:check
+npm run server:start
+npm run test:smoke-api
+npm run test:smoke-ui
+npm run test:unit
+npm run server:stop
 ```
 
-`npm run dev` writes `.data/server.pid`. `npm run stop` uses that pid file to stop the server cleanly.
+`npm run server:start` writes `.data/server.pid`. `npm run server:stop` uses that pid file to stop the server cleanly.
 
 ## Issues Already Encountered
 
@@ -71,7 +71,7 @@ curl http://127.0.0.1:3000/api/health
 
 returns connection failure from the sandbox even while the app is running.
 
-Cause: sandbox network boundaries. Use `npm run smoke` or approve the local HTTP check in Codex.
+Cause: sandbox network boundaries. Use `npm run test:smoke-api` or approve the local HTTP check in Codex.
 
 ### Playwright Browser Binary Missing
 
@@ -90,7 +90,7 @@ npm install --save-dev playwright
 npx playwright install chromium
 ```
 
-This has been done for the current environment. `npm run browser:smoke` now verifies the page with Playwright Chromium and writes a screenshot to `.data/ui-smoke.png`.
+This has been done for the current environment. `npm run test:smoke-ui` now verifies the page with Playwright Chromium and writes a screenshot to `.data/ui-smoke.png`.
 
 ### GitHub CLI Missing Or Logged Out
 
@@ -140,7 +140,7 @@ We’ve temporarily limited your login. Please try again later.
 
 Cause: Google SSO can block Playwright-controlled browser profiles even when the browser binary is system Chrome. X can also temporarily limit repeated login attempts from an automated browser profile.
 
-Fix: do not try to bypass these protections or repeatedly retry login. In the current environment, `npm run display:audit:login` is treated as unavailable and fails fast by design. Keep local replay and regression checks as the automated baseline; use already-authenticated Chrome only for manual read-only Original inspection, not as the automated screenshot source of truth.
+Fix: do not try to bypass these protections or repeatedly retry login. The old dedicated audit-profile auth/login commands have been removed. Keep local replay and regression checks as the cheap automated baseline; use the X display evidence flow with the user's already-authenticated normal Chrome session when Original X screenshots/facts are required.
 
 ## Future Environment Risks
 
@@ -196,4 +196,4 @@ The app currently has no runtime dependencies. When adding dependencies:
 - Keep domain modules framework-independent.
 - Prefer adding dev dependencies only when they improve testing or tooling.
 - Update this document and `docs/architecture.md`.
-- Run `npm run doctor`, `npm test`, `npm run smoke`, and `npm run browser:smoke`.
+- Run `npm run env:check`, `npm run test:unit`, `npm run test:smoke-api`, and `npm run test:smoke-ui`.

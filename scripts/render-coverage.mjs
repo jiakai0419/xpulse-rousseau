@@ -105,8 +105,8 @@ function markdownReport(report) {
 
   lines.push("", "## Notes", "");
   lines.push("- Trace input coverage is the broad pool for learning X rendering shapes beyond the Top 7.");
-  lines.push("- Selected coverage is the stricter replay regression pool, because `browser:smoke` renders selected posts.");
-  lines.push("- If a required bucket is thin or missing, run fresh Online Pulse or `FRESH_PULSE_RUNS=3 npm run fresh:audit`, then rerun this report.");
+  lines.push("- Selected coverage is the stricter replay regression pool, because `test:smoke-ui` renders selected posts.");
+  lines.push("- If a required bucket is thin or missing, run fresh Online Pulse or `FRESH_PULSE_RUNS=3 npm run x-display:test-fresh-pulse-rendering`, then rerun this report.");
 
   return `${lines.join("\n")}\n`;
 }
@@ -137,7 +137,7 @@ function main() {
     .slice(0, maxRuns);
 
   if (!liveRuns.length) {
-    throw new Error(`Reader render coverage needs saved live X runs in ${sourceStorePath}. Run Online Pulse first.`);
+    throw new Error(`x-display:check-sample-types needs saved live X runs in ${sourceStorePath}. Run Online Pulse first.`);
   }
 
   const traceSamples = buildSamplePool(liveRuns);
@@ -170,7 +170,7 @@ function main() {
   writeFileSync(join(outputDir, "report.json"), JSON.stringify(report, null, 2), "utf8");
   writeFileSync(join(outputDir, "report.md"), markdownReport(report), "utf8");
 
-  console.log(`Reader render coverage scanned ${liveRuns.length} real X-derived runs.`);
+  console.log(`x-display:check-sample-types scanned ${liveRuns.length} real X-derived runs.`);
   console.log(`Trace input samples: ${traceSamples.length}; selected samples: ${selectedSamples.length}.`);
   console.log(`Report: ${join(outputDir, "report.md")}`);
 
@@ -183,7 +183,7 @@ function main() {
   }
 
   if (strict && (missingTraceBuckets.length || missingSelectedBuckets.length)) {
-    throw new Error("Reader render coverage is missing required buckets in strict mode.");
+    throw new Error("x-display:check-sample-types is missing required buckets in strict mode.");
   }
 }
 

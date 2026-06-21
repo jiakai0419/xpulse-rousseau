@@ -33,7 +33,7 @@ function chooseRuns(liveRuns) {
     .sort((left, right) => Date.parse(right.run.createdAt) - Date.parse(left.run.createdAt));
 
   if (!candidates.length) {
-    throw new Error(`Replay display regression needs saved live X runs with selected posts in ${sourceStorePath}.`);
+    throw new Error(`x-display:test-replay-rendering needs saved live X runs with selected posts in ${sourceStorePath}.`);
   }
 
   const missing = new Set(requiredBuckets);
@@ -77,7 +77,7 @@ function chooseRuns(liveRuns) {
 
   if (missing.size > 0) {
     throw new Error(
-      `Replay display regression is missing required real X-derived buckets: ${[...missing].join(", ")}. Run fresh Online Pulse until these shapes appear, then retry.`,
+      `x-display:test-replay-rendering is missing required real X-derived buckets: ${[...missing].join(", ")}. Run fresh Online Pulse until these shapes appear, then retry.`,
     );
   }
 
@@ -159,7 +159,7 @@ function main() {
   const chosen = chooseRuns(liveRuns);
   const reportRuns = [];
 
-  console.log(`Replay display regression selected ${chosen.length} real X-derived runs.`);
+  console.log(`x-display:test-replay-rendering selected ${chosen.length} real X-derived runs.`);
 
   for (let index = 0; index < chosen.length; index += 1) {
     const { run, buckets } = chosen[index];
@@ -187,7 +187,7 @@ function main() {
 
   writeFileSync(join(outputDir, "report.json"), JSON.stringify(report, null, 2), "utf8");
   writeFileSync(join(outputDir, "report.md"), markdownReport(report), "utf8");
-  console.log(`OK replay display regression: ${reportRuns.length} runs. Report: ${join(outputDir, "report.md")}`);
+  console.log(`OK x-display:test-replay-rendering: ${reportRuns.length} runs. Report: ${join(outputDir, "report.md")}`);
 }
 
 try {

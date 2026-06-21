@@ -958,7 +958,7 @@ async function main() {
   writeFileSync(join(outputDir, "report.json"), JSON.stringify(report, null, 2), "utf8");
   writeFileSync(join(outputDir, "report.md"), markdownReport(report), "utf8");
 
-  console.log(`Display gap inventory sampled ${report.sampleCount} real X-derived posts.`);
+  console.log(`OK x-display:collect-local-renderings: sampled ${report.sampleCount} real X-derived posts.`);
   console.log(`Report: ${join(outputDir, "report.md")}`);
   if (Object.keys(report.riskCounts).length) {
     console.log(`Top risks: ${Object.entries(report.riskCounts).slice(0, 6).map(([risk, count]) => `${risk}:${count}`).join(", ")}`);

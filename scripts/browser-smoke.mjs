@@ -23,8 +23,8 @@ function seedReplayStore(filePath) {
   if (!sourceRun) {
     throw new Error(
       requestedRunId
-        ? `Browser smoke replay could not find saved live X run ${requestedRunId} in ${sourceStorePath}.`
-        : `Browser smoke replay needs at least one saved live X run in ${sourceStorePath}.`,
+        ? `UI smoke replay could not find saved live X run ${requestedRunId} in ${sourceStorePath}.`
+        : `UI smoke replay needs at least one saved live X run in ${sourceStorePath}.`,
     );
   }
 
@@ -151,7 +151,7 @@ try {
   await Promise.race([
     waitForHealth({ host, port, timeoutMs: 5000 }),
     childExit.then((exit) => {
-      throw new Error(`Server exited before browser smoke health check passed (code ${exit.code ?? "null"}, signal ${exit.signal ?? "null"}).`);
+      throw new Error(`Server exited before UI smoke health check passed (code ${exit.code ?? "null"}, signal ${exit.signal ?? "null"}).`);
     }),
   ]);
 
@@ -534,7 +534,7 @@ try {
 
   mkdirSync(dirname(screenshotPath), { recursive: true });
   await page.screenshot({ path: screenshotPath, fullPage: true });
-  console.log(`OK browser smoke replay: ${cards} cards from ${sourceRun.id}. Screenshot: ${screenshotPath}`);
+  console.log(`OK UI smoke replay: ${cards} cards from ${sourceRun.id}. Screenshot: ${screenshotPath}`);
 } catch (error) {
   if (output.trim()) {
     console.error(output.trim());

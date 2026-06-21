@@ -16,7 +16,7 @@ The project should continue to feel like one coherent product: an X-like reader 
 - Add or strengthen tests before moving high-risk logic.
 - Keep abstractions owner-readable. A new module should make it easier to answer "where does this behavior live?"
 - Do not introduce framework migration as part of cleanup. Keep the V1 dependency-light architecture unless a separate architecture decision approves a larger migration.
-- Do not add mock or constructed timeline source modes. Replay, smoke, display regression, and audits should keep using X-derived runs.
+- Do not add mock or constructed timeline source modes. Replay, API/UI smoke, X display replay rendering, and audits should keep using X-derived runs.
 - Do not add field-by-field compatibility shims for obsolete replay data. If a UI surface needs newly captured X fields, run a fresh Online Pulse.
 - Keep product logic documented. When moving scoring, filtering, X API, OpenAI, usage, or UI behavior, update the relevant docs in the same change.
 
@@ -40,19 +40,19 @@ As of 2026-06-18, the first V1 stabilization/refactor sweep is complete. The com
 Accepted closeout verification:
 
 ```bash
-npm run verify:refactor
-DISPLAY_ORIGINAL_CACHE_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:original-cache
-DISPLAY_ORACLE_REQUIRE_ALL=1 DISPLAY_ORACLE_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:oracle
-DISPLAY_VISUAL_REVIEW_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run display:visual-review
+npm run refactor:check-baseline
+DISPLAY_ORIGINAL_CACHE_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run x-display:collect-original-renderings
+DISPLAY_ORACLE_REQUIRE_ALL=1 DISPLAY_ORACLE_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run x-display:compare-rendering-facts
+DISPLAY_VISUAL_REVIEW_INVENTORY_REPORT=.data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json npm run x-display:build-screenshot-review
 ```
 
 The accepted result from the closeout run is:
 
 ```txt
-OK refactor verification passed.
-OK original evidence cache: 225/225 valid, 0 missing, 0 invalid.
-OK display oracle: 225 samples.
-OK display visual review: 225 samples, 38 sheets.
+OK refactor baseline check passed.
+OK x-display:collect-original-renderings: 225/225 valid, 0 missing, 0 invalid.
+OK x-display:compare-rendering-facts: 225 samples.
+OK x-display:build-screenshot-review: 225 samples, 38 sheets.
 ```
 
 Do not continue broad refactoring by inertia. The next large cleanup phase should start only after a new review of product needs, code pressure points, and test coverage. Small bug fixes, test improvements, and narrowly scoped product work can continue under the Refactor Execution Protocol.
@@ -79,27 +79,31 @@ Do not continue broad refactoring by inertia. The next large cleanup phase shoul
 - Move X-like post rendering into smaller browser modules.
 - Move link treatment and media geometry into focused functions with explicit tests or smoke assertions.
 - Keep media viewer and inline video behavior intact.
-- Keep browser smoke and display regression using real X-derived replay runs.
+- Keep UI smoke and X display replay rendering using real X-derived replay runs.
 
 **Verification:**
 
 ```bash
-npm run render:coverage
-npm test
-npm run browser:smoke
-npm run display:regression
+npm run x-display:check-sample-types
+npm run test:unit
+npm run test:smoke-ui
+npm run x-display:test-replay-rendering
 ```
 
 For display-sensitive rendering moves, also run:
 
 ```bash
-DISPLAY_AUDIT_MAX=42 DISPLAY_AUDIT_PER_BUCKET=4 npm run display:audit
+npm run x-display:collect-local-renderings
+npm run x-display:collect-original-renderings
+npm run x-display:validate-diff-rules
+DISPLAY_ORACLE_REQUIRE_ALL=1 npm run x-display:compare-rendering-facts
+npm run x-display:build-screenshot-review
 ```
 
 Before declaring the rendering boundary stable after larger changes:
 
 ```bash
-FRESH_PULSE_RUNS=3 npm run fresh:audit
+FRESH_PULSE_RUNS=3 npm run x-display:test-fresh-pulse-rendering
 ```
 
 ### 2. X Ingestion And Normalization Boundary
@@ -127,17 +131,17 @@ FRESH_PULSE_RUNS=3 npm run fresh:audit
 **Verification:**
 
 ```bash
-npm run doctor
-npm test
-npm run smoke
-npm run browser:smoke
-npm run display:regression
+npm run env:check
+npm run test:unit
+npm run test:smoke-api
+npm run test:smoke-ui
+npm run x-display:test-replay-rendering
 ```
 
 If normalization changes may affect live shapes, validate with fresh data deliberately:
 
 ```bash
-FRESH_PULSE_RUNS=3 npm run fresh:audit
+FRESH_PULSE_RUNS=3 npm run x-display:test-fresh-pulse-rendering
 ```
 
 ### 3. Refresh Pipeline Boundary
@@ -165,19 +169,19 @@ FRESH_PULSE_RUNS=3 npm run fresh:audit
 **Verification:**
 
 ```bash
-npm run doctor
-npm test
-npm run smoke
-npm run browser:smoke
-npm run display:regression
+npm run env:check
+npm run test:unit
+npm run test:smoke-api
+npm run test:smoke-ui
+npm run x-display:test-replay-rendering
 npm run test:coverage
 ```
 
 ## Already Completed
 
-- Phase 1 refactor closeout: `npm run verify:refactor`, 225-sample Original Evidence Cache, strict Display Oracle, and Visual Review Pack passed on 2026-06-18.
-- CI baseline: GitHub Actions runs doctor, unit tests, and native coverage on push and pull request.
-- Refactor guard: `npm run verify:refactor` runs doctor, unit tests, replay smoke, browser smoke, and display regression.
+- Phase 1 refactor closeout: `npm run refactor:check-baseline`, 225-sample Original Evidence Cache, strict Display Oracle, and Visual Review Pack passed on 2026-06-18.
+- CI baseline: GitHub Actions runs environment check, unit tests, and native coverage on push and pull request.
+- Refactor guard: `npm run refactor:check-baseline` runs environment check, unit tests, API smoke, UI smoke, and X display replay rendering.
 - Refresh job boundary: in-memory Pulse job state moved to `src/server/refreshJobs.ts` with unit coverage.
 - Reader format helpers: browser-side formatting and HTML escaping helpers moved to `public/reader/format.js`, keeping `public/app.js` focused one step closer to app coordination and X-like rendering.
 - Reader link rules: X-like link normalization, quote/media/preview treatment, and hidden-link text cleanup moved to `public/reader/linkRules.js` with unit coverage.
@@ -185,7 +189,7 @@ npm run test:coverage
 - Reader status helpers: usage receipt rendering, per-run usage grouping, Pulse progress labels, and compact model status moved to `public/reader/status.js` with unit coverage.
 - Reader source/auth helpers: Online/Offline source display, X auth sidebar display state, and shared avatar markup moved to `public/reader/sourceStatus.js` with unit coverage.
 - Reader action helpers: post footer metric icons/counts and Signal summary/detail rendering moved to `public/reader/actions.js` with unit coverage.
-- Reader render bucket classifier: shared X-derived sample classification for display regression, display audit, and render coverage inventory, so refactors do not learn UI rules from only the latest Top 7.
+- Reader render bucket classifier: shared X-derived sample classification for X display replay rendering, local rendering inventory, and sample type coverage, so refactors do not learn UI rules from only the latest Top 7.
 - Reader post model helpers: reader-facing post selection and retweet context display data moved to `public/reader/postModel.js` with unit coverage, while HTML composition remains in `public/app.js`.
 - Reader translation renderer: Chinese translation text selection, pending display, and source-link cleanup moved to `public/reader/translation.js` with unit coverage.
 - Reader post text renderer: source text cleanup, inline link replacement, and HTML escaping moved to `public/reader/postText.js` with unit coverage.

@@ -29,7 +29,7 @@ function readJson(filePath, fallback) {
 function latestInventoryReport() {
   const root = ".data/display-gap-inventory";
   if (!existsSync(root)) {
-    throw new Error("No display inventory directory found. Run `npm run display:inventory` first.");
+    throw new Error("No display inventory directory found. Run `npm run x-display:collect-local-renderings` first.");
   }
 
   const candidates = readdirSync(root)
@@ -38,7 +38,7 @@ function latestInventoryReport() {
     .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs);
 
   if (!candidates.length) {
-    throw new Error("No display inventory report found. Run `npm run display:inventory` first.");
+    throw new Error("No display inventory report found. Run `npm run x-display:collect-local-renderings` first.");
   }
 
   return candidates[0];
@@ -59,7 +59,7 @@ function compactSample(sample) {
 
 function markdownReport(report) {
   const lines = [
-    "# Original Evidence Cache",
+    "# Original Rendering Evidence",
     "",
     `Created: ${report.createdAt}`,
     `Inventory: \`${report.inventoryReportPath}\``,
@@ -94,8 +94,8 @@ function markdownReport(report) {
 
   lines.push("", "## Notes", "");
   lines.push("- Capture Original X evidence in batches from the already-authenticated normal Chrome session.");
-  lines.push("- Import each batch with `DISPLAY_ORIGINAL_CACHE_IMPORT=<batch-results.json> npm run display:original-cache`.");
-  lines.push("- Oracle can require all inventory rows by running `DISPLAY_ORACLE_REQUIRE_ALL=1 npm run display:oracle` after the cache is complete.");
+  lines.push("- Import each batch with `DISPLAY_ORIGINAL_CACHE_IMPORT=<batch-results.json> npm run x-display:collect-original-renderings`.");
+  lines.push("- Rendering facts can require all collected rows by running `DISPLAY_ORACLE_REQUIRE_ALL=1 npm run x-display:compare-rendering-facts` after the cache is complete.");
 
   return `${lines.join("\n")}\n`;
 }
@@ -157,7 +157,7 @@ function main() {
   }
 
   console.log(
-    `OK original evidence cache: ${coverage.covered.length}/${inventoryReport.samples?.length ?? 0} valid, ${coverage.missing.length} missing, ${coverage.invalid.length} invalid. Report: ${join(outputDir, "report.md")}`,
+    `OK x-display:collect-original-renderings: ${coverage.covered.length}/${inventoryReport.samples?.length ?? 0} valid, ${coverage.missing.length} missing, ${coverage.invalid.length} invalid. Report: ${join(outputDir, "report.md")}`,
   );
 }
 

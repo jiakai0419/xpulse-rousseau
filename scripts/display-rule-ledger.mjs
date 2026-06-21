@@ -101,12 +101,12 @@ if (process.argv[1] && process.argv[1].endsWith("display-rule-ledger.mjs")) {
   const issues = validateDisplayRuleLedger(ledger);
 
   if (issues.length) {
-    console.error(`Display Rule Ledger has ${issues.length} issue(s):`);
+    console.error(`x-display:validate-diff-rules found ${issues.length} issue(s):`);
     for (const issue of issues) {
       console.error(`- ${issue}`);
     }
     process.exitCode = 1;
   } else {
-    console.log(`OK display rule ledger: ${ledger.rules.length} rules.`);
+    console.log(`OK x-display:validate-diff-rules: ${ledger.rules.length} rules.`);
   }
 }

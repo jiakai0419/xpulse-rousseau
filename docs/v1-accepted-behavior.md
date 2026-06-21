@@ -45,21 +45,25 @@ This document freezes the V1 behavior that refactors should preserve unless the 
 Before refactoring UI or product flow, run:
 
 ```bash
-npm run doctor
-npm test
-npm run smoke
-npm run browser:smoke
-npm run display:regression
+npm run env:check
+npm run test:unit
+npm run test:smoke-api
+npm run test:smoke-ui
+npm run x-display:test-replay-rendering
 ```
 
 For rendering-sensitive refactors, also run:
 
 ```bash
-DISPLAY_AUDIT_MAX=42 DISPLAY_AUDIT_PER_BUCKET=4 npm run display:audit
+npm run x-display:collect-local-renderings
+npm run x-display:collect-original-renderings
+npm run x-display:validate-diff-rules
+DISPLAY_ORACLE_REQUIRE_ALL=1 npm run x-display:compare-rendering-facts
+npm run x-display:build-screenshot-review
 ```
 
 Before declaring display fidelity stable after a larger refactor, run a deliberate fresh-data validation:
 
 ```bash
-FRESH_PULSE_RUNS=3 npm run fresh:audit
+FRESH_PULSE_RUNS=3 npm run x-display:test-fresh-pulse-rendering
 ```

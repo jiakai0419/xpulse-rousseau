@@ -20,7 +20,7 @@ The project is intentionally small at the start: modular TypeScript, reliable en
 ## Run
 
 ```bash
-npm run dev
+npm run server:start
 ```
 
 Then open:
@@ -32,7 +32,7 @@ http://localhost:3000
 ## Test
 
 ```bash
-npm test
+npm run test:unit
 ```
 
 Run the native coverage report when preparing larger refactors:
@@ -44,29 +44,23 @@ npm run test:coverage
 Run browser and display-fidelity checks:
 
 ```bash
-npm run browser:smoke
-npm run display:regression
-npm run display:inventory
-npm run display:original-cache
-npm run display:oracle
-npm run display:rule-ledger
-npm run display:audit
+npm run test:smoke-ui
+npm run data:inventory
+npm run x-display:test-replay-rendering
+npm run x-display:collect-local-renderings
+npm run x-display:collect-original-renderings
+npm run x-display:compare-rendering-facts
+npm run x-display:validate-diff-rules
 ```
 
-When Original X pages require login during display-fidelity work, do not rely on automated X login from Playwright. In this environment X/Google blocks the dedicated audit profile, so the login helper fails fast by design:
+When Original X pages require login during display-fidelity work, do not rely on automated X login from Playwright. In this environment X/Google blocks dedicated automated audit profiles, so the old audit-profile login/auth commands were removed. Use the X display evidence flow with the user's already-authenticated normal Chrome session instead.
 
-```bash
-npm run display:audit:login
-```
-
-`display:audit:auth` is retained only for the rare case where `.data/x-audit-browser-profile/` is already authenticated by some external means. It is not a supported setup path. When the profile is not authenticated, it fails fast instead of opening a login flow.
-
-Use `DISPLAY_AUDIT_SKIP_ORIGINAL=1 npm run display:audit` only when you deliberately want a local replay report without Original X screenshots. For rigorous Original X comparison, use the Display Oracle flow: `display:inventory` finds real-data candidates, `display:original-cache` tracks which Original screenshots/facts have been captured from the user's already-authenticated normal Chrome session, and `display:oracle` blocks any checked sample with missing or blank local or Original evidence.
+For rigorous Original X comparison, use the X display evidence flow: `x-display:collect-local-renderings` finds real-data candidates, `x-display:collect-original-renderings` tracks which Original screenshots/facts have been captured from the user's already-authenticated normal Chrome session, and `x-display:compare-rendering-facts` compares local Reader facts with Original X facts while blocking any checked sample with missing or blank evidence.
 
 For distribution-outside validation after display-sensitive refactors, run a real Online Pulse audit deliberately:
 
 ```bash
-FRESH_PULSE_RUNS=3 npm run fresh:audit
+FRESH_PULSE_RUNS=3 npm run x-display:test-fresh-pulse-rendering
 ```
 
 This path calls X and OpenAI, so it is not part of the ordinary cheap test loop.
@@ -74,10 +68,10 @@ This path calls X and OpenAI, so it is not part of the ordinary cheap test loop.
 Before broad refactors, run the local pre-refactor baseline:
 
 ```bash
-npm run verify:refactor
+npm run refactor:check-baseline
 ```
 
-This runs the environment doctor, unit tests, replay smoke, browser smoke, and display regression without calling X or OpenAI.
+This runs the environment check, unit tests, API smoke, UI smoke, and X display replay rendering without calling X or OpenAI.
 
 ## CI
 
@@ -85,25 +79,26 @@ GitHub Actions runs the basic repository checks on push and pull request:
 
 ```bash
 npm ci
-npm run doctor
-npm test
+npm run env:check
+npm run test:unit
 npm run test:coverage
 ```
 
-CI intentionally does not run replay smoke, browser smoke, display regression, display audit, or fresh audit because those depend on local saved X-derived `.data` runs, browser media behavior, authenticated Original X pages, or real X/OpenAI usage.
+CI intentionally does not run API smoke, UI smoke, X display replay rendering, Original X evidence capture, or fresh Pulse rendering because those depend on local saved X-derived `.data` runs, browser media behavior, authenticated Original X pages, or real X/OpenAI usage.
 
 ## Environment Doctor
 
 Run this before changing infrastructure, dependencies, browser automation, X API, or OpenAI integration:
 
 ```bash
-npm run doctor
+npm run env:check
 ```
 
 Run an end-to-end local smoke check:
 
 ```bash
-npm run smoke
+npm run test:smoke-api
+npm run test:smoke-ui
 ```
 
 ## Configuration
@@ -138,8 +133,10 @@ Scoring and translation share `OPENAI_MODEL` by default. To lower OpenAI cost du
 - [Architecture](docs/architecture.md)
 - [Environment](docs/environment.md)
 - [X OAuth setup](docs/integrations/x-oauth.md)
+- [Command guide](docs/commands.md)
 - [Testing strategy](docs/testing.md)
 - [Test coverage matrix](docs/test-coverage-matrix.md)
+- [Local data and evidence policy](docs/local-data.md)
 - [Display fidelity oracle](docs/display-fidelity-oracle.md)
 - [Display rule ledger](docs/display-rule-ledger.json)
 - [Refactoring plan](docs/refactoring-plan.md)

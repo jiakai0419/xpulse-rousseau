@@ -16,7 +16,7 @@ function readJson(filePath) {
 function latestInventoryReport() {
   const root = ".data/display-gap-inventory";
   if (!existsSync(root)) {
-    throw new Error("No display inventory directory found. Run `npm run display:inventory` first.");
+    throw new Error("No display inventory directory found. Run `npm run x-display:collect-local-renderings` first.");
   }
 
   const candidates = readdirSync(root)
@@ -25,7 +25,7 @@ function latestInventoryReport() {
     .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs);
 
   if (!candidates.length) {
-    throw new Error("No display inventory report found. Run `npm run display:inventory` first.");
+    throw new Error("No display inventory report found. Run `npm run x-display:collect-local-renderings` first.");
   }
 
   return candidates[0];
@@ -59,7 +59,7 @@ function selectedPostIdsFromEnv(originalEntries) {
 
 function markdownReport(report) {
   const lines = [
-    "# Display Oracle Report",
+    "# X Display Rendering Facts Report",
     "",
     `Created: ${report.createdAt}`,
     `Inventory: \`${report.inventoryReportPath}\``,
@@ -99,7 +99,7 @@ function main() {
 
   if (!existsSync(originalEvidencePath)) {
     throw new Error(
-      `Original evidence is mandatory for Display Oracle. Missing: ${originalEvidencePath}. Capture Original X screenshots/facts from the already-authenticated Chrome session first.`,
+      `Original evidence is mandatory for x-display:compare-rendering-facts. Missing: ${originalEvidencePath}. Capture Original X screenshots/facts from the already-authenticated Chrome session first.`,
     );
   }
 
@@ -113,7 +113,7 @@ function main() {
   });
 
   if (summary.sampleCount === 0) {
-    throw new Error("Display Oracle has no samples to check. Provide DISPLAY_ORACLE_SAMPLE_IDS or Original evidence entries.");
+    throw new Error("x-display:compare-rendering-facts has no samples to check. Provide DISPLAY_ORACLE_SAMPLE_IDS or Original evidence entries.");
   }
 
   const originalsById = new Map(originalEntries.map((entry) => [evidencePostId(entry), entry]));
@@ -157,10 +157,10 @@ function main() {
 
   if (failureIssues.length) {
     const description = failureIssues.map((issue) => `${issue.count} ${issue.kind}`).join(", ");
-    throw new Error(`Display Oracle found ${description} sample(s). Report: ${join(outputDir, "report.md")}`);
+    throw new Error(`x-display:compare-rendering-facts found ${description} sample(s). Report: ${join(outputDir, "report.md")}`);
   }
 
-  console.log(`OK display oracle: ${summary.sampleCount} samples. Report: ${join(outputDir, "report.md")}`);
+  console.log(`OK x-display:compare-rendering-facts: ${summary.sampleCount} samples. Report: ${join(outputDir, "report.md")}`);
 }
 
 try {

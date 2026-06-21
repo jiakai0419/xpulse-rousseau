@@ -32,14 +32,14 @@ Broad inventories can contain 100-225+ posts. It is acceptable to capture Origin
 The cache flow is:
 
 ```bash
-DISPLAY_INVENTORY_FRESH=1 DISPLAY_INVENTORY_FRESH_TARGET=100 npm run display:inventory
-npm run display:original-cache
+DISPLAY_INVENTORY_FRESH=1 DISPLAY_INVENTORY_FRESH_TARGET=100 npm run x-display:collect-local-renderings
+npm run x-display:collect-original-renderings
 ```
 
-`display:original-cache` reports the next missing batch. After a batch is captured from authenticated Chrome, import it:
+`x-display:collect-original-renderings` reports the next missing batch. After a batch is captured from authenticated Chrome, import it:
 
 ```bash
-DISPLAY_ORIGINAL_CACHE_IMPORT=.data/.../original-chrome-results.json npm run display:original-cache
+DISPLAY_ORIGINAL_CACHE_IMPORT=.data/.../original-chrome-results.json npm run x-display:collect-original-renderings
 ```
 
 Captured and validated entries are stored in:
@@ -62,11 +62,11 @@ Capture execution should use that file as its queue. The expected output is:
 original-chrome-results.json
 ```
 
-Each result row must include `id`, `url`, `screenshot`, `probe`, and `facts`. The project includes `scripts/display-original-evidence-chrome-capture.mjs` as the Chrome-runtime helper for this execution step; it is intentionally separate from `npm run display:original-cache`, because normal Node scripts do not own the user's authenticated Chrome session. This keeps responsibilities clean:
+Each result row must include `id`, `url`, `screenshot`, `probe`, and `facts`. The project includes `scripts/display-original-evidence-chrome-capture.mjs` as the Chrome-runtime helper for this execution step; it is intentionally separate from `npm run x-display:collect-original-renderings`, because normal Node scripts do not own the user's authenticated Chrome session. This keeps responsibilities clean:
 
-- `display:original-cache`: plan missing rows, validate evidence, and import results;
+- `x-display:collect-original-renderings`: plan missing rows, validate evidence, and import results;
 - Chrome capture helper: open Original URLs in normal Chrome and write screenshots/facts;
-- `display:oracle`: judge only rows with mandatory local and Original evidence.
+- `x-display:compare-rendering-facts`: compare local Reader facts with Original X facts only for rows with mandatory local and Original evidence.
 
 The Chrome capture helper treats blank or low-quality Original screenshots as retryable capture failures. For each sample it opens a fresh tab per capture attempt, waits for the exact article and media paint, nudges the viewport, prefers an article-region screenshot, records screenshot quality metadata, and validates the screenshot probe. Viewport fallback screenshots are investigation artifacts only; they are not valid Oracle evidence because they can include sidebars, unrelated articles, or clipped content. The default is three fresh-tab attempts per sample and four screenshot attempts per screenshot mode. Increase `DISPLAY_ORIGINAL_CAPTURE_ATTEMPTS` only when Chrome/X rendering is temporarily slow.
 
@@ -75,21 +75,21 @@ The Chrome capture helper treats blank or low-quality Original screenshots as re
 The current V1 display-fidelity baseline is a 225-post real X-derived inventory. The gate is all-or-nothing: every inventory row must have local Reader evidence, Original X evidence, and zero detected fact diffs.
 
 ```bash
-DISPLAY_ORACLE_REQUIRE_ALL=1 npm run display:oracle
+DISPLAY_ORACLE_REQUIRE_ALL=1 npm run x-display:compare-rendering-facts
 ```
 
 A small set of known badcases is not an acceptable substitute for this gate. Fixes should be category-level changes, then the whole inventory should be rerun. The accepted baseline from 2026-06-15 was:
 
 ```txt
-OK original evidence cache: 225/225 valid, 0 missing, 0 invalid.
-OK display oracle: 225 samples.
-OK display visual review: 225 samples, 38 sheets.
+OK x-display:collect-original-renderings: 225/225 valid, 0 missing, 0 invalid.
+OK x-display:compare-rendering-facts: 225 samples.
+OK x-display:build-screenshot-review: 225 samples, 38 sheets.
 ```
 
 To require every inventory sample to have valid Original evidence:
 
 ```bash
-DISPLAY_ORACLE_REQUIRE_ALL=1 npm run display:oracle
+DISPLAY_ORACLE_REQUIRE_ALL=1 npm run x-display:compare-rendering-facts
 ```
 
 Oracle exit semantics are intentionally strict:
@@ -109,7 +109,7 @@ docs/display-rule-ledger.json
 Validate it with:
 
 ```bash
-npm run display:rule-ledger
+npm run x-display:validate-diff-rules
 ```
 
 Each rule records:
@@ -158,7 +158,7 @@ Local screenshot capture uses the system Chrome channel by default because bundl
 Display Oracle consumes both fact evidence and screenshot evidence. Facts catch known structural diffs; screenshots catch visual shape mismatches that facts do not yet encode. For broad screenshot comparison, generate a side-by-side visual pack:
 
 ```bash
-npm run display:visual-review
+npm run x-display:build-screenshot-review
 ```
 
 The command reads the latest Display Gap Inventory and the Original Evidence Cache, then writes:

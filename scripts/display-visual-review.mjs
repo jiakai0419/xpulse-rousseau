@@ -282,7 +282,7 @@ async function renderSheets(rows) {
       const sheetNumber = Math.floor(index / sheetSize) + 1;
       const sheetHtmlPath = join(outputDir, `sheet-${String(sheetNumber).padStart(3, "0")}.html`);
       const sheetPngPath = join(outputDir, `sheet-${String(sheetNumber).padStart(3, "0")}.png`);
-      writeFileSync(sheetHtmlPath, documentHtml(sheetRows, `Display visual review sheet ${sheetNumber}`), "utf8");
+      writeFileSync(sheetHtmlPath, documentHtml(sheetRows, `X Display Screenshot Review Sheet ${sheetNumber}`), "utf8");
       await page.goto(pathToFileURL(resolve(sheetHtmlPath)).href);
       await page.waitForLoadState("networkidle");
       await page.screenshot({ path: sheetPngPath, fullPage: true });
@@ -296,7 +296,7 @@ async function renderSheets(rows) {
 
 function markdownReport(report) {
   const lines = [
-    "# Display Visual Review",
+    "# X Display Screenshot Review",
     "",
     `Created: ${report.createdAt}`,
     `Inventory: \`${report.inventoryReportPath}\``,
@@ -304,7 +304,7 @@ function markdownReport(report) {
     `Samples: ${report.rows.length}`,
     `Sheets: ${report.sheetFiles.length}`,
     "",
-    "This pack is the automated screenshot-comparison artifact for Codex review. It does not replace Display Oracle; it complements it by putting the mandatory Reader and Original screenshots side by side.",
+    "This pack is the automated screenshot-comparison artifact for Codex review. It does not replace x-display:compare-rendering-facts; it complements it by putting the mandatory Reader and Original screenshots side by side.",
     "",
     "## Sheets",
     "",
@@ -330,7 +330,7 @@ async function main() {
   const originalEvidenceStorePath = originalEvidencePath();
 
   if (!existsSync(originalEvidenceStorePath)) {
-    throw new Error(`Missing Original evidence store: ${originalEvidenceStorePath}. Run npm run display:original-cache first.`);
+    throw new Error(`Missing Original evidence store: ${originalEvidenceStorePath}. Run npm run x-display:collect-original-renderings first.`);
   }
 
   const inventoryReport = readJson(inventoryReportPath);
@@ -360,7 +360,7 @@ async function main() {
 
   mkdirSync(outputDir, { recursive: true });
   const indexHtmlPath = join(outputDir, "index.html");
-  writeFileSync(indexHtmlPath, documentHtml(rows, "Display visual review"), "utf8");
+  writeFileSync(indexHtmlPath, documentHtml(rows, "X Display Screenshot Review"), "utf8");
   const sheetFiles = await renderSheets(rows);
 
   const report = {
@@ -383,7 +383,7 @@ async function main() {
   writeFileSync(join(outputDir, "review.json"), JSON.stringify(report, null, 2), "utf8");
   writeFileSync(join(outputDir, "report.md"), markdownReport(report), "utf8");
 
-  console.log(`OK display visual review: ${rows.length} samples, ${sheetFiles.length} sheets.`);
+  console.log(`OK x-display:build-screenshot-review: ${rows.length} samples, ${sheetFiles.length} sheets.`);
   console.log(`Report: ${join(outputDir, "report.md")}`);
   console.log(`Index: ${indexHtmlPath}`);
 }
