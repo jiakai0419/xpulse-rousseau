@@ -57,7 +57,225 @@ OK x-display:build-screenshot-review: 225 samples, 38 sheets.
 
 Do not continue broad refactoring by inertia. The next large cleanup phase should start only after a new review of product needs, code pressure points, and test coverage. Small bug fixes, test improvements, and narrowly scoped product work can continue under the Refactor Execution Protocol.
 
-## Top 3 Refactor Tracks
+## Phase 2 Entry Assessment
+
+As of 2026-06-21, the project is not in a "keep splitting whatever looks large" state. V1 behavior is stable enough to protect, Phase 1 has already completed the three highest-risk product boundaries, and the next cleanup should improve control and confidence rather than produce churn.
+
+Current baseline signals:
+
+- Local worktree is clean on the command/data governance branch.
+- Unit test suite has 181 passing tests.
+- Local data inventory reports 20 saved runs, including 18 live X-derived runs, and 330 Original evidence entries.
+- X rendering sample coverage sees 558 trace input samples and 112 selected samples from real X-derived runs.
+- The command set now separates ordinary tests, replay rendering checks, Original evidence collection, screenshot review, fresh Pulse validation, and local data inventory.
+
+The Phase 2 rule is: do not begin a large refactor until the target boundary, non-goals, and verification set are written down first.
+
+Before starting any Phase 2 refactor, run:
+
+```bash
+npm run data:inventory
+npm run test:unit
+npm run refactor:check-baseline
+npm run x-display:check-sample-types
+```
+
+For display-sensitive Phase 2 work, also use the full evidence flow:
+
+```bash
+npm run x-display:collect-local-renderings
+npm run x-display:collect-original-renderings
+npm run x-display:validate-diff-rules
+DISPLAY_ORACLE_REQUIRE_ALL=1 npm run x-display:compare-rendering-facts
+npm run x-display:build-screenshot-review
+```
+
+Fresh Online Pulse validation should be deliberate because it calls X and OpenAI:
+
+```bash
+FRESH_PULSE_RUNS=3 npm run x-display:test-fresh-pulse-rendering
+```
+
+## Phase 2 Candidate Tracks
+
+These are candidate tracks, not automatic commitments. Pick one, complete it, verify it, and merge it before starting another.
+
+### 1. Display Evidence Tooling Boundary
+
+**Status:** Candidate for Phase 2.
+
+**Goal:** Make the X display-fidelity tooling easier to understand and maintain without changing Reader rendering behavior.
+
+**Why this comes first:** Recent product stability depends heavily on the display evidence system. The user has repeatedly emphasized screenshot comparison, broad samples, and not fixing one post while breaking another. The tooling now works, but it has many concepts and scripts: local rendering inventory, Original evidence cache, Chrome capture helper, screenshot probes, quality checks, Display Oracle, Rule Ledger, Visual Review Pack, replay rendering, and fresh Pulse rendering.
+
+**What this boundary is really for:** This is not a generic script cleanup area. It is the project's display-fidelity evidence system. Its larger job is to stop the repeated cycle of fixing one X rendering mismatch while breaking another by turning subjective visual comparison into reusable evidence: broad real X-derived samples, local Reader screenshots and facts, authenticated Original X screenshots and facts, strict blocked/failed/pass semantics, screenshot review sheets, and rule explanations that can be challenged by new samples.
+
+The display tools are successful when they help answer four owner-level questions:
+
+- Are we learning X rendering behavior from enough real posts, not from a few memorable badcases?
+- Do we have both local and Original evidence for every post we claim is aligned?
+- If a post differs, do we know whether it is a missing data problem, a rendering rule problem, or a capture-quality problem?
+- Can a future refactor prove that it did not damage the accepted X-like Reader experience?
+
+**Current assessment:** The system now serves the larger goal reasonably well. It has real X-derived inventories, Original evidence caching, strict Oracle blocking for missing or low-quality evidence, screenshot-quality checks, screenshot review sheets, replay rendering regression, and fresh Pulse validation. However, the implementation still carries its history as temporary tooling. The evidence concepts are stronger than the code structure that hosts them.
+
+**Main design pressure:** `scripts/display-gap-inventory.ts` is the clearest overloaded boundary. It currently handles sample selection, optional fresh X fetching, preview enrichment, local replay-run construction, local server and browser lifecycle, Reader facts extraction, screenshot capture, screenshot probing, and report writing. Those are legitimate stages, but keeping them in one script makes the evidence system harder to reason about than it needs to be.
+
+**Refactor hypothesis:** Effective Phase 2 work should make the evidence system's domain language explicit before moving code for its own sake. The useful abstractions are not "misc helpers"; they are:
+
+- display sample selection and bucket classification;
+- local Reader evidence capture;
+- Original X evidence planning, capture import, and validation;
+- screenshot probe and screenshot-quality validation;
+- Local-vs-Original Oracle comparison;
+- visual review artifact generation;
+- fresh Pulse distribution-outside rendering validation.
+
+The first useful code cleanup is therefore to extract stable evidence contracts and stage helpers, then shrink the large orchestration scripts around those contracts. A shallow helper extraction that merely reduces line count without clarifying these stages is not meaningful refactoring.
+
+**Current pressure points:**
+
+- The display scripts are now the densest part of the project.
+- Some script names are clear, but the internal flow is still mentally expensive.
+- Facts comparison, screenshot evidence, screenshot review, and rule validation are separate layers that must remain distinct.
+- Chrome-based Original capture is necessarily special because it depends on the user's authenticated normal Chrome session.
+- Evidence-shaped data contracts are implicit JSON objects shared across scripts rather than a small explicit module.
+- Some flows are robust operationally but still hard to explain: inventory, Original cache planning/import, Chrome capture, Oracle, visual review, and replay/fresh validation are correct concepts, but their implementation boundaries are uneven.
+
+**Target shape:**
+
+- Keep the npm command names stable.
+- Keep screenshots as automated evidence, not optional manual decoration.
+- Make script responsibilities map directly to the documented evidence flow:
+  - collect local Reader evidence;
+  - collect or import Original X evidence;
+  - validate known diff explanations;
+  - compare local facts with Original facts;
+  - build screenshot review sheets.
+- Prefer extracting shared display evidence contracts and stage helpers over adding another one-off script.
+- Keep real X-derived runs as the data source; do not add mock display samples.
+- Keep `Rule Ledger` explanatory. It must never become the judge that proves UI alignment.
+- Keep Chrome Original capture as a dedicated execution adapter around normal authenticated Chrome, while moving reusable target matching, validation, and quality semantics into testable helpers.
+
+**Non-goals:**
+
+- Do not change Reader UI rendering rules as part of tooling cleanup.
+- Do not reintroduce the removed `display:audit` login/profile path.
+- Do not make Rule Ledger the judge. Oracle evidence remains the judge.
+- Do not start by adding screenshot pixel-diff thresholds. First make current evidence contracts and stages explicit; then decide whether image comparison needs stronger automation.
+- Do not rewrite all display scripts in one PR.
+
+**Recommended first slice:**
+
+1. Extract explicit display evidence contracts and tiny read/write helpers for inventory samples, Original evidence entries, Oracle rows, screenshot probes, and screenshot quality.
+2. Move sample bucket/risk classification behind those contracts without changing bucket names or reports.
+3. Split local Reader evidence capture out of `display-gap-inventory.ts`, keeping the npm command and output paths unchanged.
+4. Add unit tests around the extracted contracts before changing orchestration.
+5. Run the existing replay and full-inventory display gates before and after the slice.
+
+**Verification:**
+
+```bash
+npm run test:unit
+npm run data:inventory
+npm run x-display:check-sample-types
+npm run x-display:test-replay-rendering
+```
+
+For larger display-tooling changes:
+
+```bash
+npm run x-display:collect-local-renderings
+npm run x-display:collect-original-renderings
+npm run x-display:validate-diff-rules
+DISPLAY_ORACLE_REQUIRE_ALL=1 npm run x-display:compare-rendering-facts
+npm run x-display:build-screenshot-review
+```
+
+### 2. Local Data And Evidence Stewardship Boundary
+
+**Status:** Candidate for Phase 2.
+
+**Goal:** Make `.data/` easier to reason about as private product state plus reusable evidence, without deleting or rewriting owner data automatically.
+
+**Why this comes second:** The project now depends on real local evidence: saved live runs, raw X snapshots, OpenAI cache, link preview cache, Original evidence, visual review packs, render coverage reports, and generated inventories. This is valuable, but it needs a clear lifecycle so future agents do not confuse product state, canonical evidence, generated reports, browser state, and transient diagnostics.
+
+**Current pressure points:**
+
+- `.data/` is large and valuable, but intentionally ignored by git.
+- Canonical display baselines and generated reports live near ordinary debug artifacts.
+- There is a read-only inventory command, but no accepted baseline registry or cleanup decision record.
+- Fresh data collection is important, but it should not casually mutate product reading state unless that is the goal.
+
+**Target shape:**
+
+- Keep `npm run data:inventory` read-only.
+- Add owner-readable records for accepted display baselines and evidence replacement decisions.
+- Clarify which generated reports are disposable, which are canonical, and which are active investigation artifacts.
+- If cleanup tooling is ever added, make it dry-run first and require explicit owner approval before deleting.
+- Keep replay/smoke/display tests based on X-derived data, not fabricated timelines.
+
+**Non-goals:**
+
+- Do not migrate storage to SQLite in this track.
+- Do not delete `.data` files automatically.
+- Do not upload private evidence.
+
+**Verification:**
+
+```bash
+npm run data:inventory
+npm run test:unit
+npm run test:smoke-api
+npm run test:smoke-ui
+npm run x-display:test-replay-rendering
+```
+
+### 3. App Coordination And Reader Shell Boundary
+
+**Status:** Candidate for Phase 2, lower priority than tooling and data stewardship.
+
+**Goal:** Keep `public/app.js` as a small browser app coordinator by moving remaining event, polling, and media-viewer coordination into focused modules when doing so reduces real complexity.
+
+**Why this is not first:** Phase 1 already extracted the high-risk post rendering modules. The Reader works, and display fidelity has been heavily verified. The remaining `public/app.js` size is a maintainability concern, but it is less urgent than making the evidence tools and local data lifecycle easier to control.
+
+**Current pressure points:**
+
+- `public/app.js` still coordinates API state, polling, Pulse source state, job progress, rendering calls, media viewer behavior, and DOM event wiring.
+- Media viewer behavior is important and visually sensitive.
+- Any UI shell change can accidentally affect display fidelity even when post rendering modules are untouched.
+
+**Target shape:**
+
+- Extract only when a named responsibility becomes easier to test or explain.
+- Keep rendering rules in `public/reader/` modules.
+- Keep app coordination readable to a non-coding owner.
+- Run display replay checks before and after any UI shell movement.
+
+**Non-goals:**
+
+- Do not redesign the UI in this track.
+- Do not change X-like rendering rules unless a display evidence run shows a real mismatch.
+- Do not start a frontend framework migration.
+
+**Verification:**
+
+```bash
+npm run test:unit
+npm run test:smoke-ui
+npm run x-display:test-replay-rendering
+```
+
+If the change touches media viewer behavior, post layout, source links, or Signal placement:
+
+```bash
+npm run x-display:collect-local-renderings
+npm run x-display:collect-original-renderings
+DISPLAY_ORACLE_REQUIRE_ALL=1 npm run x-display:compare-rendering-facts
+npm run x-display:build-screenshot-review
+```
+
+## Phase 1 Refactor Tracks
 
 ### 1. Reader Rendering Boundary
 

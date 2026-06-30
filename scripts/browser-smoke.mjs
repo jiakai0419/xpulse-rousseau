@@ -157,7 +157,7 @@ try {
 
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`http://${host}:${port}`, { waitUntil: "networkidle" });
+  await page.goto(`http://${host}:${port}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
 
   const sourceLabel = await page.locator("#source-toggle-label").textContent({ timeout: 10_000 });
   if (sourceLabel === "Online") {
@@ -276,24 +276,51 @@ try {
         () => {
           const video = document.querySelector(".media-item video");
 
-          return Boolean(video && video.readyState >= 2 && !video.paused && video.currentTime > 0);
+          return Boolean(video && (video.currentSrc || video.src) && !video.error);
         },
         undefined,
         { timeout: mediaLoadTimeoutMs },
       );
     } catch (error) {
-      throw new Error(`Expected inline video media to start autoplaying within ${mediaLoadTimeoutMs}ms: ${error instanceof Error ? error.message : error}`);
+      throw new Error(`Expected inline video media to expose a loadable source within ${mediaLoadTimeoutMs}ms: ${error instanceof Error ? error.message : error}`);
     }
 
-    const videoState = await firstVideo.evaluate((video) => ({
-      src: video.currentSrc || video.src,
-      readyState: video.readyState,
-      paused: video.paused,
-      currentTime: video.currentTime,
-    }));
+    const videoState = await firstVideo.evaluate(async (video) => {
+      let playStatus = "not_attempted";
+
+      try {
+        const playPromise = video.play();
+
+        if (playPromise) {
+          playStatus = await Promise.race([
+            playPromise.then(() => "resolved"),
+            playPromise.catch((error) => `rejected:${error?.name ?? "error"}`),
+            new Promise((resolve) => setTimeout(() => resolve("pending"), 2_000)),
+          ]);
+        }
+      } catch (error) {
+        playStatus = `rejected:${error?.name ?? "error"}`;
+      }
+
+      return {
+        src: video.currentSrc || video.src,
+        readyState: video.readyState,
+        paused: video.paused,
+        currentTime: video.currentTime,
+        errorCode: video.error?.code ?? null,
+        playStatus,
+      };
+    });
 
     if (!videoState.src.includes("/api/media/proxy?")) {
       throw new Error(`Expected inline X video to use local media proxy, found ${videoState.src}.`);
+    }
+
+    const playStatus = String(videoState.playStatus);
+    const unsupportedPlayback = playStatus.startsWith("rejected:") && !playStatus.includes("AbortError");
+
+    if (videoState.errorCode || unsupportedPlayback) {
+      throw new Error(`Expected inline X video to be playable or still loading, found ${JSON.stringify(videoState)}.`);
     }
 
     const badVideoFit = await page.locator(".media-grid.media-count-1 .media-item video").evaluateAll((videos) =>

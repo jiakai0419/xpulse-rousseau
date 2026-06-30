@@ -119,6 +119,157 @@ test("Display Oracle blocks Original screenshots that were captured as a viewpor
   assert.ok(result.blocked.includes("original_screenshot_not_target_article:viewport_after_blank_clip"));
 });
 
+test("Display Oracle blocks article clips without capture method metadata", () => {
+  const result = evaluateDisplayOracleSample(
+    sample(),
+    original({
+      screenshotMode: "article_clip",
+      probe: {
+        blank: false,
+        reason: "contentful",
+        width: 599,
+        height: 900,
+      },
+      facts: {
+        foundExactArticle: true,
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+        media: [],
+        textStart: "Original X post",
+      },
+    }),
+  );
+
+  assert.equal(result.status, "blocked");
+  assert.ok(result.blocked.includes("original_screenshot_missing_capture_method"));
+});
+
+test("Display Oracle blocks article clips wider than the Original article", () => {
+  const result = evaluateDisplayOracleSample(
+    sample(),
+    original({
+      screenshotMode: "article_clip",
+      probe: {
+        blank: false,
+        reason: "contentful",
+        width: 749,
+        height: 900,
+      },
+      facts: {
+        foundExactArticle: true,
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+        media: [],
+        textStart: "Original X post",
+      },
+      screenshotQuality: {
+        mode: "article_clip",
+        clip: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+      },
+    }),
+  );
+
+  assert.equal(result.status, "blocked");
+  assert.ok(result.blocked.includes("original_screenshot_probe_width_mismatch"));
+});
+
+test("Display Oracle accepts viewport-cropped article screenshots with image-pixel width", () => {
+  const result = evaluateDisplayOracleSample(
+    sample(),
+    original({
+      screenshotMode: "article_clip",
+      captureMethod: "viewport_crop",
+      probe: {
+        blank: false,
+        reason: "contentful",
+        width: 749,
+        height: 900,
+      },
+      facts: {
+        foundExactArticle: true,
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+        media: [],
+        textStart: "Original X post",
+      },
+      screenshotQuality: {
+        mode: "article_clip",
+        captureMethod: "viewport_crop",
+        clip: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+      },
+    }),
+  );
+
+  assert.equal(result.status, "passed");
+});
+
+test("Display Oracle blocks likely Original interstitial screenshots", () => {
+  const result = evaluateDisplayOracleSample(
+    sample(),
+    original({
+      screenshotMode: "article_clip",
+      captureMethod: "viewport_crop",
+      probe: {
+        blank: false,
+        reason: "contentful",
+        width: 599,
+        height: 1170,
+        whiteRatio: 0.9963,
+        darkRatio: 0,
+        variance: 28.3,
+      },
+      facts: {
+        foundExactArticle: true,
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 1170,
+        },
+        media: [],
+        textStart: "Original X post",
+      },
+    }),
+  );
+
+  assert.equal(result.status, "blocked");
+  assert.ok(result.blocked.includes("original_screenshot_likely_interstitial"));
+});
+
 test("Display Oracle detects X Article rich-card diffs even when a rule is missing", () => {
   const result = evaluateDisplayOracleSample(
     sample({

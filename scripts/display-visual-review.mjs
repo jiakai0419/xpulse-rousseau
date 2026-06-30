@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
-import { evaluateDisplayOracle, evidencePostId } from "./display-oracle-core.mjs";
-import { normalizeOriginalEvidenceDocument } from "./display-original-evidence-cache-core.mjs";
+import { evidencePostId, normalizeOriginalEvidenceDocument } from "./display-evidence-core.mjs";
+import { evaluateDisplayOracle } from "./display-oracle-core.mjs";
 
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outputDir = process.env.DISPLAY_VISUAL_REVIEW_DIR || `.data/display-visual-review/visual-review-${timestamp}`;

@@ -50,6 +50,8 @@ Captured and validated entries are stored in:
 
 Because the cache is keyed by post id, previously captured Original evidence is reused. Re-running the cache command only reports missing or invalid rows.
 
+Original screenshots are evidence assets, not temporary diagnostics. When Original evidence is imported, any screenshot path outside `.data/display-original-evidence` is copied into durable local evidence storage before the store is updated. If an older evidence row points to a missing temporary screenshot, the cache command may repair it only when exactly one durable `*-original.png` screenshot for the same post id already exists under `.data/display-original-evidence`. Otherwise the row remains invalid and must be recaptured. This avoids both data loss and false repair.
+
 The batch file is:
 
 ```txt
@@ -68,7 +70,7 @@ Each result row must include `id`, `url`, `screenshot`, `probe`, and `facts`. Th
 - Chrome capture helper: open Original URLs in normal Chrome and write screenshots/facts;
 - `x-display:compare-rendering-facts`: compare local Reader facts with Original X facts only for rows with mandatory local and Original evidence.
 
-The Chrome capture helper treats blank or low-quality Original screenshots as retryable capture failures. For each sample it opens a fresh tab per capture attempt, waits for the exact article and media paint, nudges the viewport, prefers an article-region screenshot, records screenshot quality metadata, and validates the screenshot probe. Viewport fallback screenshots are investigation artifacts only; they are not valid Oracle evidence because they can include sidebars, unrelated articles, or clipped content. The default is three fresh-tab attempts per sample and four screenshot attempts per screenshot mode. Increase `DISPLAY_ORIGINAL_CAPTURE_ATTEMPTS` only when Chrome/X rendering is temporarily slow.
+The Chrome capture helper treats blank or low-quality Original screenshots as retryable capture failures. For each sample it opens a fresh tab per capture attempt, waits for the exact article and media paint, reveals X interstitials such as `Show probable spam` when possible, nudges the viewport, prefers an article-region screenshot, records screenshot quality metadata, and validates the screenshot probe. If Chrome cannot produce a contentful direct article clip, the helper may capture the full viewport and crop it back to the known article rectangle; the final persisted evidence must still be an article-region screenshot. The helper re-locates the exact article immediately before screenshot capture, so stale pre-scroll clips are not accepted. The persisted `captureMethod` distinguishes direct article clips from valid viewport-cropped article evidence. Article clips without `captureMethod` are treated as legacy evidence and must be recaptured before they can satisfy the Oracle. Direct clips whose pixel probe does not match the target article width are invalid; nearly-all-white interstitial screenshots are invalid even when they contain a small amount of text. Viewport fallback screenshots are investigation artifacts only; they are not valid Oracle evidence because they can include sidebars, unrelated articles, or clipped content. The default is three fresh-tab attempts per sample and four screenshot attempts per screenshot mode. Increase `DISPLAY_ORIGINAL_CAPTURE_ATTEMPTS` only when Chrome/X rendering is temporarily slow.
 
 ## Full-Inventory Gate
 

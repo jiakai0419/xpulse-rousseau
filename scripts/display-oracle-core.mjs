@@ -1,37 +1,5 @@
-import { existsSync } from "node:fs";
 import { explainDiffWithLedger, readDisplayRuleLedger } from "./display-rule-ledger.mjs";
-import { originalScreenshotQualityIssues } from "./display-screenshot-quality.mjs";
-
-function numberValue(value) {
-  return Number.isFinite(Number(value)) ? Number(value) : 0;
-}
-
-function arrayValue(value) {
-  return Array.isArray(value) ? value : [];
-}
-
-function textValue(value) {
-  return String(value ?? "");
-}
-
-export function contentfulScreenshotProbe(probe) {
-  return Boolean(probe && probe.blank === false && !String(probe.reason ?? "").startsWith("probe_failed"));
-}
-
-export function evidencePostId(evidence) {
-  return textValue(evidence?.id ?? evidence?.postId ?? evidence?.displayPost?.id);
-}
-
-export function originalEvidenceById(originalEntries) {
-  const byId = new Map();
-  for (const entry of arrayValue(originalEntries)) {
-    const id = evidencePostId(entry);
-    if (id) {
-      byId.set(id, entry);
-    }
-  }
-  return byId;
-}
+import { arrayValue, localEvidenceIssues, numberValue, oracleOriginalEvidenceIssues, originalEvidenceById, textValue } from "./display-evidence-core.mjs";
 
 export function localVideoCount(localFacts) {
   return arrayValue(localFacts?.videos).length;
@@ -100,48 +68,7 @@ export function localVideoIsPlaying(localFacts) {
 }
 
 function missingEvidenceIssues(sample, original) {
-  const issues = [];
-
-  if (!sample?.localScreenshot) {
-    issues.push("missing_local_screenshot");
-  } else if (!existsSync(sample.localScreenshot)) {
-    issues.push("local_screenshot_file_missing");
-  }
-
-  if (!contentfulScreenshotProbe(sample?.localScreenshotProbe)) {
-    issues.push(sample?.localScreenshotProbe?.blank ? `local_screenshot_blank:${sample.localScreenshotProbe.reason}` : "missing_local_screenshot_probe");
-  }
-
-  if (!sample?.localFacts) {
-    issues.push("missing_local_facts");
-  }
-
-  if (!original) {
-    issues.push("missing_original_evidence");
-    return issues;
-  }
-
-  if (!original.screenshot) {
-    issues.push("missing_original_screenshot");
-  } else if (!existsSync(original.screenshot)) {
-    issues.push("original_screenshot_file_missing");
-  }
-
-  if (!contentfulScreenshotProbe(original.probe)) {
-    issues.push(original?.probe?.blank ? `original_screenshot_blank:${original.probe.reason}` : "missing_original_screenshot_probe");
-  }
-
-  for (const qualityIssue of originalScreenshotQualityIssues(original)) {
-    issues.push(qualityIssue);
-  }
-
-  if (!original.facts) {
-    issues.push("missing_original_facts");
-  } else if (original.facts.foundExactArticle === false) {
-    issues.push("original_exact_article_not_found");
-  }
-
-  return issues;
+  return [...localEvidenceIssues(sample), ...oracleOriginalEvidenceIssues(original)];
 }
 
 function factDiffs(sample, original) {

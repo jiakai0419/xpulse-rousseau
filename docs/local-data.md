@@ -33,6 +33,7 @@ The command scans `.data/`, writes `.data/data-inventory/.../report.md` and `rep
 - `.data/openai-cache.json` caches OpenAI scoring and translation results by operation/model/prompt/source fingerprint. It does not include interaction weighting.
 - `.data/link-preview-cache.json` caches ordinary external preview metadata. It is separate from OpenAI cache.
 - `.data/display-original-evidence/original-evidence-store.json` is the reusable Original X evidence cache for Display Oracle.
+- `.data/display-original-evidence/original-screenshots/` stores Original screenshots that were imported from outside the durable evidence root. Evidence rows must not depend on `/private/tmp`, browser downloads, or other temporary screenshot locations.
 
 ## Cleanup Policy
 
@@ -57,3 +58,5 @@ The testing strategy relies on real X-derived data rather than fabricated source
 - visual review sheets are automated screenshot comparison artifacts, not optional manual decoration.
 
 If a test needs a missing X shape, collect more real data with Online Pulse or the display inventory tooling instead of inventing mock posts.
+
+When importing Original X evidence, keep screenshots durable. `npm run x-display:collect-original-renderings` copies external screenshot paths into `.data/display-original-evidence/original-screenshots/` and can repair old missing screenshot paths only when there is exactly one durable screenshot match for the same post id. Rows that still point to missing screenshots are not trustworthy evidence and should be recaptured rather than accepted.

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { displayOracleFailureIssues, evaluateDisplayOracle, evidencePostId } from "./display-oracle-core.mjs";
-import { normalizeOriginalEvidenceDocument } from "./display-original-evidence-cache-core.mjs";
+import { evidencePostId, normalizeOriginalEvidenceDocument } from "./display-evidence-core.mjs";
+import { displayOracleFailureIssues, evaluateDisplayOracle } from "./display-oracle-core.mjs";
 import { defaultRuleLedgerPath } from "./display-rule-ledger.mjs";
 
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");

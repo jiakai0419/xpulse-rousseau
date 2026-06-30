@@ -62,8 +62,9 @@ Most scripts should be reached through the command names above. A few files in `
 | Script | Role |
 | --- | --- |
 | `scripts/data-inventory-core.mjs` | Shared data inventory classifiers used by `data:inventory` and unit tests. |
+| `scripts/display-evidence-assets.mjs` | Shared Original evidence screenshot asset normalization: copies imported screenshots into durable `.data/display-original-evidence` storage and repairs old missing paths only when one matching durable screenshot exists. |
+| `scripts/display-evidence-core.mjs` | Shared display evidence contracts for local screenshots/facts, Original X evidence, contentful probes, and evidence coverage. |
 | `scripts/display-oracle-core.mjs` | Shared Local-vs-Original rendering comparison logic used by display commands and tests. |
-| `scripts/display-original-evidence-cache-core.mjs` | Shared Original evidence validation/cache logic used by display commands and tests. |
 | `scripts/display-screenshot-quality.mjs` | Screenshot quality probes used by Original evidence and Oracle checks. |
 | `scripts/env-utils.mjs` | Shared host, process, and temporary server helpers. |
 | `scripts/render-buckets.mjs` | Shared X rendering bucket classification used by coverage, replay rendering, and tests. |
