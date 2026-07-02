@@ -1,5 +1,7 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { buildOriginalScreenshotQuality, originalScreenshotQualityIssues } from "./display-screenshot-quality.mjs";
 
 function sanitize(value) {
@@ -152,6 +154,45 @@ export async function collectXOriginalFacts(tab, sampleOrPostId) {
   };
 }
 
+export async function revealXOriginalInterstitials(tab) {
+  const target = await tab.playwright
+    .evaluate(() => {
+      const visible = (element) => {
+        const box = element.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+      };
+      const candidates = Array.from(document.querySelectorAll('button, a, div[role="button"], span')).filter(visible);
+      const element = candidates.find((candidate) => /^show probable spam$/i.test(String(candidate.textContent ?? "").trim()));
+
+      if (!element) {
+        return undefined;
+      }
+
+      const box = element.getBoundingClientRect();
+      return {
+        x: Math.max(1, Math.round(box.x + box.width / 2)),
+        y: Math.max(1, Math.round(box.y + box.height / 2)),
+      };
+    })
+    .catch(() => undefined);
+
+  if (target?.x && target?.y) {
+    if (tab.cua?.click) {
+      await tab.cua.click(target).catch(() => {});
+    } else {
+      await tab.playwright
+        .evaluate((point) => {
+          document.elementFromPoint(point.x, point.y)?.click();
+        }, target)
+        .catch(() => {});
+    }
+    await tab.playwright.waitForTimeout(1_200).catch(() => {});
+    return true;
+  }
+
+  return false;
+}
+
 export async function waitForXOriginalArticle(tab, sampleOrPostId, timeoutMs = 45_000) {
   const page = tab.playwright;
   const target = captureTarget(sampleOrPostId);
@@ -208,6 +249,13 @@ export async function waitForXOriginalArticle(tab, sampleOrPostId, timeoutMs = 4
 
     if (state.found) {
       return true;
+    }
+
+    if (/Show probable spam/i.test(state.text)) {
+      const revealed = await revealXOriginalInterstitials(tab);
+      if (revealed) {
+        continue;
+      }
     }
 
     if (/See what's happening|Log in|Sign in|Continue with phone|Continue with Google|Don.t miss what.s happening/i.test(state.text)) {
@@ -281,7 +329,12 @@ export async function originalArticleClip(tab, sampleOrPostId) {
         return true;
       }
 
-      return fingerprint.length >= 40 && normalize(candidate.innerText).includes(fingerprint);
+      if (fingerprint.length >= 40 && normalize(candidate.innerText).includes(fingerprint)) {
+        return true;
+      }
+
+      const terms = normalize(target.textStart).split(" ").filter((term) => term.length > 4).slice(0, 8);
+      return terms.length >= 3 && terms.every((term) => normalize(candidate.innerText).includes(term));
     });
 
     if (!article) {
@@ -304,10 +357,137 @@ function contentfulProbeResult(probe) {
   return Boolean(probe?.blank === false && !String(probe?.reason ?? "").startsWith("probe_failed"));
 }
 
+function probeMatchesCssClip(probe, clip) {
+  if (!clip) {
+    return true;
+  }
+
+  const probeWidth = positiveNumber(probe?.width);
+  const clipWidth = positiveNumber(clip.width);
+
+  if (!probeWidth || !clipWidth) {
+    return true;
+  }
+
+  return Math.abs(probeWidth - clipWidth) <= 80;
+}
+
+function positiveNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+export function scaleClipForScreenshot(clip, viewport, imageDimensions) {
+  const imageWidth = positiveNumber(imageDimensions?.width);
+  const imageHeight = positiveNumber(imageDimensions?.height);
+  const viewportWidth = positiveNumber(viewport?.width);
+  const viewportHeight = positiveNumber(viewport?.height);
+
+  if (!clip || !imageWidth || !imageHeight) {
+    return undefined;
+  }
+
+  const scaleX = viewportWidth ? imageWidth / viewportWidth : 1;
+  const scaleY = viewportHeight ? imageHeight / viewportHeight : scaleX;
+  const x = Math.max(0, Math.min(Math.floor(positiveNumber(clip.x) * scaleX), imageWidth - 1));
+  const y = Math.max(0, Math.min(Math.floor(positiveNumber(clip.y) * scaleY), imageHeight - 1));
+  const width = Math.max(1, Math.min(Math.ceil(positiveNumber(clip.width) * scaleX), imageWidth - x));
+  const height = Math.max(1, Math.min(Math.ceil(positiveNumber(clip.height) * scaleY), imageHeight - y));
+
+  return {
+    x,
+    y,
+    width,
+    height,
+  };
+}
+
+async function viewportDimensions(tab) {
+  return tab.playwright
+    .evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }))
+    .catch(() => undefined);
+}
+
+function cropViewportScreenshotToClip(inputPath, outputPath, clip, viewport, probe) {
+  const scaledClip = scaleClipForScreenshot(clip, viewport, probe);
+  if (!scaledClip) {
+    return false;
+  }
+
+  const tempDir = mkdtempSync(join(tmpdir(), "xpulse-original-crop-"));
+  const cropPath = join(tempDir, "article-clip.png");
+
+  try {
+    const result = spawnSync(
+      "sips",
+      [
+        "--cropToHeightWidth",
+        String(scaledClip.height),
+        String(scaledClip.width),
+        "--cropOffset",
+        String(scaledClip.y),
+        String(scaledClip.x),
+        inputPath,
+        "--out",
+        cropPath,
+      ],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+
+    if (result.status !== 0) {
+      return false;
+    }
+
+    renameSync(cropPath, outputPath);
+    return true;
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function captureArticleClipFromViewport(tab, screenshotPath, inspectScreenshot, clip, sampleOrPostId) {
+  const foundArticle = await waitForScreenshotPaint(tab, sampleOrPostId, clip, 1);
+  const activeClip = (await originalArticleClip(tab, sampleOrPostId).catch(() => undefined)) ?? (foundArticle === false ? undefined : clip);
+  if (!activeClip) {
+    return undefined;
+  }
+
+  const viewport = await viewportDimensions(tab);
+  const screenshot = await tab.screenshot({});
+  writeFileSync(screenshotPath, screenshot);
+  const viewportProbe = inspectScreenshot ? inspectScreenshot(screenshotPath) : undefined;
+
+  if (inspectScreenshot && !contentfulProbeResult(viewportProbe)) {
+    return undefined;
+  }
+
+  if (!cropViewportScreenshotToClip(screenshotPath, screenshotPath, activeClip, viewport, viewportProbe)) {
+    return undefined;
+  }
+
+  const probe = inspectScreenshot ? inspectScreenshot(screenshotPath) : undefined;
+  if (inspectScreenshot && !contentfulProbeResult(probe)) {
+    return undefined;
+  }
+
+  return {
+    mode: "article_clip",
+    captureMethod: "viewport_crop",
+    clip: activeClip,
+    probe,
+  };
+}
+
 async function waitForScreenshotPaint(tab, sampleOrPostId, clip, attempt) {
   await tab.playwright.waitForLoadState({ state: "domcontentloaded", timeoutMs: 5_000 }).catch(() => {});
 
-  await tab.playwright
+  const foundArticle = await tab.playwright
     .evaluate(async (target) => {
       const normalize = (value) =>
         String(value ?? "")
@@ -317,7 +497,8 @@ async function waitForScreenshotPaint(tab, sampleOrPostId, clip, attempt) {
           .toLowerCase();
       const fullFingerprint = normalize(target.textStart);
       const fingerprint = fullFingerprint.slice(0, 72);
-      const article = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).find((candidate) => {
+      const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+      const findArticle = () => Array.from(document.querySelectorAll('article[data-testid="tweet"]')).find((candidate) => {
         const hasStatusLink = Array.from(candidate.querySelectorAll("a[href]")).some((link) =>
           String(link.getAttribute("href") ?? "").includes(`/status/${target.postId}`),
         );
@@ -333,18 +514,26 @@ async function waitForScreenshotPaint(tab, sampleOrPostId, clip, attempt) {
         const terms = fullFingerprint.split(" ").filter((term) => term.length > 4).slice(0, 8);
         return terms.length >= 3 && terms.every((term) => normalize(candidate.innerText).includes(term));
       });
+      let article = findArticle();
 
-      if (article) {
-        article.scrollIntoView({ block: "start", inline: "nearest" });
+      if (!article) {
+        window.scrollTo(0, 0);
+        await wait(450);
+        article = findArticle();
       }
 
-      const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+      if (!article) {
+        return false;
+      }
+
+      article.scrollIntoView({ block: "start", inline: "nearest" });
       await wait(80);
       window.scrollBy(0, 1);
       window.scrollBy(0, -1);
       await wait(160);
+      return true;
     }, captureTarget(sampleOrPostId))
-    .catch(() => {});
+    .catch(() => false);
 
   if (clip && tab.cua?.move) {
     const x = Math.max(1, Math.round(clip.x + Math.min(clip.width - 1, Math.max(1, clip.width / 2))));
@@ -353,38 +542,65 @@ async function waitForScreenshotPaint(tab, sampleOrPostId, clip, attempt) {
   }
 
   await tab.playwright.waitForTimeout(350 + attempt * 250);
+  return foundArticle;
 }
 
 export async function captureWithProbe(tab, screenshotPath, inspectScreenshot, clip, sampleOrPostId) {
-  const modes = clip ? ["article_clip", "viewport_after_blank_clip"] : ["viewport"];
+  const modes = clip ? ["article_clip"] : ["viewport"];
 
   for (const mode of modes) {
     const options = mode === "article_clip" ? { clip } : {};
 
     for (let attempt = 1; attempt <= 4; attempt += 1) {
-      await waitForScreenshotPaint(tab, sampleOrPostId, clip, attempt);
-      const screenshot = await tab.screenshot(options);
+      const foundArticle = await waitForScreenshotPaint(tab, sampleOrPostId, clip, attempt);
+      const activeClip =
+        mode === "article_clip"
+          ? (await originalArticleClip(tab, sampleOrPostId).catch(() => undefined)) ?? (foundArticle === false ? undefined : clip)
+          : undefined;
+
+      if (mode === "article_clip" && !activeClip) {
+        await tab.playwright.waitForTimeout(900 * attempt);
+        continue;
+      }
+
+      const screenshotOptions = mode === "article_clip" ? { clip: activeClip } : options;
+      const screenshot = await tab.screenshot(screenshotOptions);
       writeFileSync(screenshotPath, screenshot);
       const probe = inspectScreenshot ? inspectScreenshot(screenshotPath) : undefined;
 
-      if (!inspectScreenshot || contentfulProbeResult(probe)) {
+      if (!inspectScreenshot || (contentfulProbeResult(probe) && probeMatchesCssClip(probe, activeClip ?? clip))) {
         return {
           mode,
+          captureMethod: mode === "article_clip" ? "direct_clip" : undefined,
+          clip: activeClip,
           probe,
         };
+      }
+
+      if (mode === "article_clip" && contentfulProbeResult(probe) && !probeMatchesCssClip(probe, activeClip ?? clip)) {
+        break;
       }
 
       await tab.playwright.waitForTimeout(900 * attempt);
     }
   }
 
+  if (clip) {
+    const cropped = await captureArticleClipFromViewport(tab, screenshotPath, inspectScreenshot, clip, sampleOrPostId);
+    if (cropped) {
+      return cropped;
+    }
+  }
+
   const screenshot = await tab.screenshot({});
   writeFileSync(screenshotPath, screenshot);
-  return {
-    mode: clip ? "viewport_after_blank_clip" : "viewport",
-    probe: inspectScreenshot ? inspectScreenshot(screenshotPath) : undefined,
-  };
-}
+    return {
+      mode: clip ? "viewport_after_blank_clip" : "viewport",
+      captureMethod: "viewport",
+      clip,
+      probe: inspectScreenshot ? inspectScreenshot(screenshotPath) : undefined,
+    };
+  }
 
 function originalValidationErrors(facts, probe, screenshotQuality) {
   const validationErrors = [];
@@ -410,8 +626,11 @@ function retryableOriginalValidationIssue(issue) {
     issue === "missing_original_screenshot_probe" ||
     issue.startsWith("original_screenshot_not_target_article:") ||
     issue === "original_screenshot_likely_viewport_capture" ||
+    issue === "original_screenshot_missing_capture_method" ||
     issue === "original_screenshot_clip_width_mismatch" ||
     issue === "original_screenshot_clip_x_mismatch" ||
+    issue === "original_screenshot_probe_width_mismatch" ||
+    issue === "original_screenshot_likely_interstitial" ||
     issue === "original_screenshot_right_rail_risk"
   );
 }
@@ -435,15 +654,27 @@ async function captureOriginalEvidenceEntry({ browser, sample, index, batchLengt
 
     try {
       await tab.goto(sample.url);
+      await revealXOriginalInterstitials(tab);
       await waitForXOriginalArticle(tab, sample, timeoutMs);
+      await revealXOriginalInterstitials(tab);
       await waitForXOriginalMedia(tab, sample);
       const evidence = await readXOriginalArticleEvidence(tab, sample);
       const clip = evidence.found ? evidence.clip : await originalArticleClip(tab, sample);
-      const facts = evidence.found ? evidence.facts : await collectXOriginalFacts(tab, sample);
+      const initialFacts = evidence.found ? evidence.facts : await collectXOriginalFacts(tab, sample);
+      await revealXOriginalInterstitials(tab);
       const screenshotResult = await captureWithProbe(tab, screenshotPath, inspectScreenshot, clip, sample);
+      const postCaptureEvidence = await readXOriginalArticleEvidence(tab, sample);
+      const facts = postCaptureEvidence.found
+        ? postCaptureEvidence.facts
+        : {
+            ...(initialFacts ?? {}),
+            foundExactArticle: false,
+          };
       const screenshotMode = screenshotResult.mode;
+      const captureMethod = screenshotResult.captureMethod;
+      const screenshotClip = screenshotResult.clip ?? clip;
       const probe = screenshotResult.probe;
-      const screenshotQuality = buildOriginalScreenshotQuality({ screenshotMode, clip, facts, probe });
+      const screenshotQuality = buildOriginalScreenshotQuality({ screenshotMode, captureMethod, clip: screenshotClip, facts, probe });
       const validationErrors = originalValidationErrors(facts, probe, screenshotQuality);
 
       lastEntry = {
@@ -453,6 +684,7 @@ async function captureOriginalEvidenceEntry({ browser, sample, index, batchLengt
         url: sample.url,
         screenshot: screenshotPath,
         screenshotMode,
+        captureMethod,
         screenshotQuality,
         probe,
         facts,

@@ -10,10 +10,11 @@ function contentfulProbe(probe) {
   return Boolean(probe && probe.blank === false && !String(probe.reason ?? "").startsWith("probe_failed"));
 }
 
-export function buildOriginalScreenshotQuality({ screenshotMode, clip, facts, probe } = {}) {
+export function buildOriginalScreenshotQuality({ screenshotMode, captureMethod, clip, facts, probe } = {}) {
   return {
     target: "original_article",
     mode: screenshotMode ?? "unknown",
+    captureMethod,
     clip: clip
       ? {
           x: numberValue(clip.x),
@@ -29,6 +30,9 @@ export function buildOriginalScreenshotQuality({ screenshotMode, clip, facts, pr
           height: numberValue(probe.height),
           blank: Boolean(probe.blank),
           reason: probe.reason,
+          whiteRatio: numberValue(probe.whiteRatio),
+          darkRatio: numberValue(probe.darkRatio),
+          variance: numberValue(probe.variance),
         }
       : undefined,
   };
@@ -37,6 +41,7 @@ export function buildOriginalScreenshotQuality({ screenshotMode, clip, facts, pr
 export function originalScreenshotQualityIssues(entry) {
   const issues = [];
   const mode = entry?.screenshotMode ?? entry?.screenshotQuality?.mode;
+  const captureMethod = entry?.captureMethod ?? entry?.screenshotQuality?.captureMethod;
   const probe = entry?.probe ?? entry?.screenshotQuality?.probe;
   const clip = entry?.screenshotQuality?.clip ?? entry?.clip;
   const articleRect = entry?.facts?.articleRect ?? entry?.screenshotQuality?.articleRect;
@@ -53,6 +58,19 @@ export function originalScreenshotQualityIssues(entry) {
     issues.push("original_screenshot_likely_viewport_capture");
   }
 
+  if (mode === "article_clip" && !captureMethod) {
+    issues.push("original_screenshot_missing_capture_method");
+  }
+
+  if (
+    mode === "article_clip" &&
+    numberValue(probe?.whiteRatio) >= 0.995 &&
+    numberValue(probe?.darkRatio) <= 0.001 &&
+    numberValue(probe?.variance) <= 60
+  ) {
+    issues.push("original_screenshot_likely_interstitial");
+  }
+
   if (clip && articleRect) {
     const clipWidth = numberValue(clip.width);
     const articleWidth = numberValue(articleRect.width);
@@ -65,6 +83,16 @@ export function originalScreenshotQualityIssues(entry) {
 
     if (Math.abs(clipX - articleX) > 80) {
       issues.push("original_screenshot_clip_x_mismatch");
+    }
+
+  }
+
+  if (mode === "article_clip" && captureMethod !== "viewport_crop" && articleRect) {
+    const probeWidth = numberValue(probe?.width);
+    const articleWidth = numberValue(articleRect.width);
+
+    if (probeWidth > 0 && articleWidth > 0 && Math.abs(probeWidth - articleWidth) > 80) {
+      issues.push("original_screenshot_probe_width_mismatch");
     }
   }
 

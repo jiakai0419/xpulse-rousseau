@@ -4,10 +4,9 @@ import { getHost, spawnServer, waitForHealth } from "./env-utils.mjs";
 const host = getHost();
 const port = positiveInt(process.env.FRESH_PULSE_PORT, 3500);
 const pulseRuns = positiveInt(process.env.FRESH_PULSE_RUNS, 1);
-const displayAudit = process.env.FRESH_PULSE_DISPLAY_AUDIT !== "0";
-const displayAuditAuth = process.env.FRESH_PULSE_DISPLAY_AUDIT_AUTH === "1";
 const timeoutMs = positiveInt(process.env.FRESH_PULSE_TIMEOUT_MS, 20 * 60 * 1000);
-const displayAuditTimeoutMs = positiveInt(process.env.FRESH_PULSE_DISPLAY_AUDIT_TIMEOUT_MS, 8 * 60 * 1000);
+const renderingCheck = process.env.FRESH_PULSE_RENDERING_CHECK !== "0";
+const renderingCheckTimeoutMs = positiveInt(process.env.FRESH_PULSE_RENDERING_CHECK_TIMEOUT_MS, 8 * 60 * 1000);
 
 function positiveInt(value, fallback) {
   const parsed = Number(value);
@@ -68,24 +67,20 @@ async function waitForJob(baseUrl, jobId) {
   throw new Error(`Timed out waiting for Fresh Pulse job ${jobId}.`);
 }
 
-function runDisplayAudit(runId, index) {
+function runRenderingCheck(runId, index) {
   const env = {
     ...process.env,
-    DISPLAY_AUDIT_RUN_IDS: runId,
-    DISPLAY_AUDIT_MAX: process.env.FRESH_PULSE_DISPLAY_AUDIT_MAX || "7",
-    DISPLAY_AUDIT_PER_BUCKET: process.env.FRESH_PULSE_DISPLAY_AUDIT_PER_BUCKET || "1",
-    DISPLAY_AUDIT_PORT: String(port + 100 + index),
+    BROWSER_SMOKE_PORT: String(port + 100 + index),
+    BROWSER_SMOKE_RUN_STORE: ".data/runs.json",
+    BROWSER_SMOKE_RUN_ID: runId,
+    BROWSER_SMOKE_SCREENSHOT: `.data/fresh-pulse-rendering/${runId}.png`,
   };
 
-  if (displayAuditAuth) {
-    env.DISPLAY_AUDIT_AUTH_PROFILE = "1";
-  }
-
-  const result = spawnSync(process.execPath, ["scripts/display-fidelity-audit.mjs"], {
+  const result = spawnSync(process.execPath, ["scripts/browser-smoke.mjs"], {
     cwd: process.cwd(),
     env,
     encoding: "utf8",
-    timeout: displayAuditTimeoutMs,
+    timeout: renderingCheckTimeoutMs,
   });
 
   if (result.stdout.trim()) {
@@ -97,12 +92,13 @@ function runDisplayAudit(runId, index) {
   }
 
   if (result.error) {
-    const detail = result.error.code === "ETIMEDOUT" ? `timed out after ${Math.round(displayAuditTimeoutMs / 1000)} seconds` : result.error.message;
-    throw new Error(`Display audit failed for fresh Pulse run ${runId}: ${detail}.`);
+    const detail =
+      result.error.code === "ETIMEDOUT" ? `timed out after ${Math.round(renderingCheckTimeoutMs / 1000)} seconds` : result.error.message;
+    throw new Error(`Fresh Pulse rendering check failed for run ${runId}: ${detail}.`);
   }
 
   if (result.status !== 0) {
-    throw new Error(`Display audit failed for fresh Pulse run ${runId}.`);
+    throw new Error(`Fresh Pulse rendering check failed for run ${runId}.`);
   }
 }
 
@@ -146,8 +142,8 @@ async function main() {
       runIds.push(run.id);
       console.log(`OK fresh Online Pulse ${index + 1}/${pulseRuns}: ${run.id}, selected ${run.stats.selected}`);
 
-      if (displayAudit) {
-        runDisplayAudit(run.id, index);
+      if (renderingCheck) {
+        runRenderingCheck(run.id, index);
       }
     }
 

@@ -28,7 +28,7 @@ if (!portStatus.available) {
   if (listeners.length > 0) {
     console.error(`Listeners: ${listeners.map((item) => `${item.command} pid ${item.pid}`).join(", ")}`);
   }
-  console.error("If this is an old project server, run: npm run stop");
+  console.error("If this is an old project server, run: npm run server:stop");
   process.exit(1);
 }
 

@@ -109,11 +109,11 @@ if (portStatus.available) {
   add("ok", "Default dev port", `${host}:${port} is in use by project server pid ${pid}.`);
 } else if (listeners.length > 0) {
   const summary = listeners.map((item) => `${item.command} pid ${item.pid}`).join(", ");
-  add("warn", "Default dev port", `${host}:${port} is in use by ${summary}, but no project pid file was found. Run npm run stop to clean it up.`);
+  add("warn", "Default dev port", `${host}:${port} is in use by ${summary}, but no project pid file was found. Run npm run server:stop to clean it up.`);
 } else if (portStatus.code === "EPERM") {
-  add("warn", "Default dev port", `${host}:${port} cannot be probed from this sandbox without approval. This is expected inside Codex; approve npm run dev/smoke or run from a normal shell.`);
+  add("warn", "Default dev port", `${host}:${port} cannot be probed from this sandbox without approval. This is expected inside Codex; approve npm run server:start/test:smoke-api or run from a normal shell.`);
 } else {
-  add("warn", "Default dev port", `${host}:${port} is not available (${portStatus.code}). Run npm run stop or choose another PORT.`);
+  add("warn", "Default dev port", `${host}:${port} is not available (${portStatus.code}). Run npm run server:stop or choose another PORT.`);
 }
 
 const chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";

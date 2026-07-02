@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
 
 const steps = [
-  ["Environment doctor", "npm", ["run", "doctor"]],
-  ["Unit tests", "npm", ["test"]],
-  ["Replay smoke", "npm", ["run", "smoke"]],
-  ["Browser smoke", "npm", ["run", "browser:smoke"]],
-  ["Display regression", "npm", ["run", "display:regression"]],
+  ["Environment check", "npm", ["run", "env:check"]],
+  ["Unit tests", "npm", ["run", "test:unit"]],
+  ["API smoke", "npm", ["run", "test:smoke-api"]],
+  ["UI smoke", "npm", ["run", "test:smoke-ui"]],
+  ["X display replay rendering", "npm", ["run", "x-display:test-replay-rendering"]],
 ];
 
 for (const [label, command, args] of steps) {
@@ -17,12 +17,12 @@ for (const [label, command, args] of steps) {
   });
 
   if (result.status !== 0) {
-    console.error(`\nRefactor verification failed at: ${label}`);
+    console.error(`\nRefactor baseline check failed at: ${label}`);
     process.exitCode = result.status ?? 1;
     break;
   }
 }
 
 if (!process.exitCode) {
-  console.log("\nOK refactor verification passed.");
+  console.log("\nOK refactor baseline check passed.");
 }

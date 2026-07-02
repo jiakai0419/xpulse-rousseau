@@ -24,11 +24,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Environment doctor
-        run: npm run doctor
+      - name: Environment check
+        run: npm run env:check
 
       - name: Unit tests
-        run: npm test
+        run: npm run test:unit
 
       - name: Unit coverage map
         run: npm run test:coverage

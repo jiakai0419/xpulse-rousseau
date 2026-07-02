@@ -5,8 +5,9 @@ import {
   normalizeOriginalEvidenceDocument,
   originalEvidenceCoverage,
   validOriginalEvidenceEntry,
-} from "./display-original-evidence-cache-core.mjs";
-import { evidencePostId } from "./display-oracle-core.mjs";
+  evidencePostId,
+} from "./display-evidence-core.mjs";
+import { normalizeOriginalEvidenceScreenshotAssets } from "./display-evidence-assets.mjs";
 
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outputDir = process.env.DISPLAY_ORIGINAL_CACHE_DIR || `.data/display-original-evidence/cache-${timestamp}`;
@@ -29,7 +30,7 @@ function readJson(filePath, fallback) {
 function latestInventoryReport() {
   const root = ".data/display-gap-inventory";
   if (!existsSync(root)) {
-    throw new Error("No display inventory directory found. Run `npm run display:inventory` first.");
+    throw new Error("No display inventory directory found. Run `npm run x-display:collect-local-renderings` first.");
   }
 
   const candidates = readdirSync(root)
@@ -38,7 +39,7 @@ function latestInventoryReport() {
     .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs);
 
   if (!candidates.length) {
-    throw new Error("No display inventory report found. Run `npm run display:inventory` first.");
+    throw new Error("No display inventory report found. Run `npm run x-display:collect-local-renderings` first.");
   }
 
   return candidates[0];
@@ -59,7 +60,7 @@ function compactSample(sample) {
 
 function markdownReport(report) {
   const lines = [
-    "# Original Evidence Cache",
+    "# Original Rendering Evidence",
     "",
     `Created: ${report.createdAt}`,
     `Inventory: \`${report.inventoryReportPath}\``,
@@ -68,6 +69,10 @@ function markdownReport(report) {
     `Cached valid samples: ${report.coveredCount}`,
     `Cached invalid samples: ${report.invalidCount}`,
     `Missing samples: ${report.missingCount}`,
+    `Persisted external screenshots: ${report.assetReport.persistedExternalScreenshots}`,
+    `Repaired missing screenshots: ${report.assetReport.repairedMissingScreenshots}`,
+    `Unresolved missing screenshots: ${report.assetReport.unresolvedMissingScreenshots}`,
+    `Ambiguous missing screenshots: ${report.assetReport.ambiguousMissingScreenshots}`,
     "",
     "## Next Capture Batch",
     "",
@@ -94,8 +99,10 @@ function markdownReport(report) {
 
   lines.push("", "## Notes", "");
   lines.push("- Capture Original X evidence in batches from the already-authenticated normal Chrome session.");
-  lines.push("- Import each batch with `DISPLAY_ORIGINAL_CACHE_IMPORT=<batch-results.json> npm run display:original-cache`.");
-  lines.push("- Oracle can require all inventory rows by running `DISPLAY_ORACLE_REQUIRE_ALL=1 npm run display:oracle` after the cache is complete.");
+  lines.push("- Import each batch with `DISPLAY_ORIGINAL_CACHE_IMPORT=<batch-results.json> npm run x-display:collect-original-renderings`.");
+  lines.push("- Imported screenshots outside `.data/display-original-evidence` are copied into durable local evidence storage before the store is updated.");
+  lines.push("- Missing screenshot paths are repaired only when exactly one durable screenshot for the same post id already exists under `.data/display-original-evidence`.");
+  lines.push("- Rendering facts can require all collected rows by running `DISPLAY_ORACLE_REQUIRE_ALL=1 npm run x-display:compare-rendering-facts` after the cache is complete.");
 
   return `${lines.join("\n")}\n`;
 }
@@ -108,7 +115,9 @@ function main() {
   const importPath = process.env.DISPLAY_ORIGINAL_CACHE_IMPORT;
   const importedEntries = importPath ? normalizeOriginalEvidenceDocument(readJson(importPath)) : [];
   const mergedEntries = mergeOriginalEvidenceEntries(existingEntries, importedEntries);
-  const coverage = originalEvidenceCoverage(inventoryReport.samples ?? [], mergedEntries);
+  const assetNormalization = normalizeOriginalEvidenceScreenshotAssets(mergedEntries);
+  const normalizedEntries = assetNormalization.entries;
+  const coverage = originalEvidenceCoverage(inventoryReport.samples ?? [], normalizedEntries);
   const validEntries = coverage.covered.map((item) => item.entry);
   const nextBatch = [...coverage.invalid.map((item) => item.sample), ...coverage.missing].slice(0, batchLimit).map(compactSample);
 
@@ -120,7 +129,7 @@ function main() {
       {
         version: 1,
         updatedAt: new Date().toISOString(),
-        entries: mergedEntries,
+        entries: normalizedEntries,
       },
       null,
       2,
@@ -136,6 +145,7 @@ function main() {
     storePath: resolve(storePath),
     importedPath: importPath ? resolve(importPath) : undefined,
     importedCount: importedEntries.length,
+    assetReport: assetNormalization.report,
     inventorySampleCount: inventoryReport.samples?.length ?? 0,
     coveredCount: coverage.covered.length,
     invalidCount: coverage.invalid.length,
@@ -157,7 +167,7 @@ function main() {
   }
 
   console.log(
-    `OK original evidence cache: ${coverage.covered.length}/${inventoryReport.samples?.length ?? 0} valid, ${coverage.missing.length} missing, ${coverage.invalid.length} invalid. Report: ${join(outputDir, "report.md")}`,
+    `OK x-display:collect-original-renderings: ${coverage.covered.length}/${inventoryReport.samples?.length ?? 0} valid, ${coverage.missing.length} missing, ${coverage.invalid.length} invalid. Report: ${join(outputDir, "report.md")}`,
   );
 }
 

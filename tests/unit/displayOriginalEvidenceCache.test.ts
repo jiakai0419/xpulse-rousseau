@@ -8,7 +8,7 @@ import {
   normalizeOriginalEvidenceDocument,
   originalEvidenceCoverage,
   validOriginalEvidenceEntry,
-} from "../../scripts/display-original-evidence-cache-core.mjs";
+} from "../../scripts/display-evidence-core.mjs";
 
 const tempDir = mkdtempSync(join(tmpdir(), "xpulse-original-evidence-cache-test-"));
 const screenshot = join(tempDir, "original.png");
@@ -78,6 +78,171 @@ test("validOriginalEvidenceEntry rejects non-target Original screenshot captures
 
   assert.equal(invalid.valid, false);
   assert.ok(invalid.issues.includes("original_screenshot_not_target_article:viewport_after_blank_clip"));
+});
+
+test("validOriginalEvidenceEntry rejects article clips without capture method metadata", () => {
+  const invalid = validOriginalEvidenceEntry(
+    evidence("1", {
+      screenshotMode: "article_clip",
+      probe: {
+        blank: false,
+        reason: "contentful",
+        width: 599,
+        height: 900,
+      },
+      facts: {
+        foundExactArticle: true,
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+      },
+    }),
+  );
+
+  assert.equal(invalid.valid, false);
+  assert.ok(invalid.issues.includes("original_screenshot_missing_capture_method"));
+});
+
+test("validOriginalEvidenceEntry rejects article clips wider than the target article", () => {
+  const invalid = validOriginalEvidenceEntry(
+    evidence("1", {
+      screenshotMode: "article_clip",
+      probe: {
+        blank: false,
+        reason: "contentful",
+        width: 749,
+        height: 900,
+      },
+      facts: {
+        foundExactArticle: true,
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+      },
+      screenshotQuality: {
+        mode: "article_clip",
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+        clip: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+      },
+    }),
+  );
+
+  assert.equal(invalid.valid, false);
+  assert.ok(invalid.issues.includes("original_screenshot_probe_width_mismatch"));
+});
+
+test("validOriginalEvidenceEntry rejects old wide article clips without clip metadata", () => {
+  const invalid = validOriginalEvidenceEntry(
+    evidence("1", {
+      screenshotMode: "article_clip",
+      probe: {
+        blank: false,
+        reason: "contentful",
+        width: 749,
+        height: 900,
+      },
+      facts: {
+        foundExactArticle: true,
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+      },
+    }),
+  );
+
+  assert.equal(invalid.valid, false);
+  assert.ok(invalid.issues.includes("original_screenshot_probe_width_mismatch"));
+});
+
+test("validOriginalEvidenceEntry accepts viewport-cropped article evidence at image pixel width", () => {
+  const valid = validOriginalEvidenceEntry(
+    evidence("1", {
+      screenshotMode: "article_clip",
+      captureMethod: "viewport_crop",
+      probe: {
+        blank: false,
+        reason: "contentful",
+        width: 749,
+        height: 900,
+      },
+      facts: {
+        foundExactArticle: true,
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+      },
+      screenshotQuality: {
+        mode: "article_clip",
+        captureMethod: "viewport_crop",
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+        clip: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 900,
+        },
+      },
+    }),
+  );
+
+  assert.equal(valid.valid, true);
+});
+
+test("validOriginalEvidenceEntry rejects likely Original interstitial screenshots", () => {
+  const invalid = validOriginalEvidenceEntry(
+    evidence("1", {
+      screenshotMode: "article_clip",
+      captureMethod: "viewport_crop",
+      probe: {
+        blank: false,
+        reason: "contentful",
+        width: 599,
+        height: 1170,
+        whiteRatio: 0.9963,
+        darkRatio: 0,
+        variance: 28.3,
+      },
+      facts: {
+        foundExactArticle: true,
+        articleRect: {
+          x: 843,
+          y: 0,
+          width: 599,
+          height: 1170,
+        },
+      },
+    }),
+  );
+
+  assert.equal(invalid.valid, false);
+  assert.ok(invalid.issues.includes("original_screenshot_likely_interstitial"));
 });
 
 test("mergeOriginalEvidenceEntries replaces older entries by post id", () => {
