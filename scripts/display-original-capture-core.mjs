@@ -28,6 +28,69 @@ export function originalCaptureTarget(sampleOrPostId) {
   };
 }
 
+export function normalizeOriginalArticleText(value) {
+  return String(value ?? "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+export function originalArticleMatchTerms(normalizedText) {
+  return String(normalizedText ?? "")
+    .split(" ")
+    .filter((term) => term.length > 4)
+    .slice(0, 8);
+}
+
+export function originalArticleMatchTarget(sampleOrPostId, { fingerprintLength = 72, fingerprintMinLength = 24 } = {}) {
+  const target = originalCaptureTarget(sampleOrPostId);
+  const fullFingerprint = normalizeOriginalArticleText(target.textStart);
+
+  return {
+    ...target,
+    postStatusPath: `/status/${target.postId}`,
+    fullFingerprint,
+    fingerprint: fullFingerprint.slice(0, fingerprintLength),
+    fingerprintMinLength,
+    terms: originalArticleMatchTerms(fullFingerprint),
+  };
+}
+
+export function originalArticleMatchCandidate({ target, hrefs = [], text = "" }) {
+  const postStatusPath = target?.postStatusPath ?? `/status/${target?.postId}`;
+
+  if (hrefs.some((href) => String(href ?? "").includes(postStatusPath))) {
+    return {
+      matches: true,
+      method: "status_link",
+    };
+  }
+
+  const normalizedText = normalizeOriginalArticleText(text);
+  const fingerprint = String(target?.fingerprint ?? "").trim();
+
+  if (fingerprint.length >= Number(target?.fingerprintMinLength ?? 24) && normalizedText.includes(fingerprint)) {
+    return {
+      matches: true,
+      method: "text_fingerprint",
+    };
+  }
+
+  const terms = Array.isArray(target?.terms) ? target.terms : originalArticleMatchTerms(normalizeOriginalArticleText(target?.textStart));
+  if (terms.length >= 3 && terms.every((term) => normalizedText.includes(term))) {
+    return {
+      matches: true,
+      method: "term_fallback",
+    };
+  }
+
+  return {
+    matches: false,
+    method: undefined,
+  };
+}
+
 export function contentfulOriginalProbeResult(probe) {
   return Boolean(probe?.blank === false && !String(probe?.reason ?? "").startsWith("probe_failed"));
 }
