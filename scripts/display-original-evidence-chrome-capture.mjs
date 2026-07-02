@@ -2,36 +2,22 @@ import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { buildOriginalScreenshotQuality, originalScreenshotQualityIssues } from "./display-screenshot-quality.mjs";
+import {
+  contentfulOriginalProbeResult,
+  originalCaptureAuthorSlug,
+  originalCaptureTarget,
+  originalProbeMatchesCssClip,
+  originalValidationErrors,
+  retryableOriginalCaptureErrors,
+  sanitizeOriginalCaptureSlug,
+  scaleClipForScreenshot,
+} from "./display-original-capture-core.mjs";
+import { buildOriginalScreenshotQuality } from "./display-screenshot-quality.mjs";
 
-function sanitize(value) {
-  return String(value ?? "unknown")
-    .replace(/^@/, "")
-    .replace(/[^a-zA-Z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "unknown";
-}
-
-function sampleAuthorSlug(sample) {
-  return sample?.author?.username ?? sample?.author?.name ?? sample?.author ?? "unknown";
-}
+export { retryableOriginalCaptureErrors, scaleClipForScreenshot } from "./display-original-capture-core.mjs";
 
 export function loadOriginalCaptureBatch(batchPath) {
   return JSON.parse(readFileSync(batchPath, "utf8")).samples ?? [];
-}
-
-function captureTarget(sampleOrPostId) {
-  if (typeof sampleOrPostId === "object" && sampleOrPostId) {
-    return {
-      postId: String(sampleOrPostId.postId ?? sampleOrPostId.id),
-      textStart: String(sampleOrPostId.textStart ?? ""),
-    };
-  }
-
-  return {
-    postId: String(sampleOrPostId),
-    textStart: "",
-  };
 }
 
 export async function readXOriginalArticleEvidence(tab, sampleOrPostId) {
@@ -135,7 +121,7 @@ export async function readXOriginalArticleEvidence(tab, sampleOrPostId) {
         url: location.href,
       },
     };
-  }, captureTarget(sampleOrPostId));
+  }, originalCaptureTarget(sampleOrPostId));
 }
 
 export async function collectXOriginalFacts(tab, sampleOrPostId) {
@@ -195,7 +181,7 @@ export async function revealXOriginalInterstitials(tab) {
 
 export async function waitForXOriginalArticle(tab, sampleOrPostId, timeoutMs = 45_000) {
   const page = tab.playwright;
-  const target = captureTarget(sampleOrPostId);
+  const target = originalCaptureTarget(sampleOrPostId);
   const startedAt = Date.now();
   let scrollStep = 0;
 
@@ -308,7 +294,7 @@ export async function waitForXOriginalMedia(tab, sampleOrPostId) {
 
     const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
     await wait(2200);
-  }, captureTarget(sampleOrPostId));
+  }, originalCaptureTarget(sampleOrPostId));
 }
 
 export async function originalArticleClip(tab, sampleOrPostId) {
@@ -350,56 +336,7 @@ export async function originalArticleClip(tab, sampleOrPostId) {
       width,
       height,
     };
-  }, captureTarget(sampleOrPostId));
-}
-
-function contentfulProbeResult(probe) {
-  return Boolean(probe?.blank === false && !String(probe?.reason ?? "").startsWith("probe_failed"));
-}
-
-function probeMatchesCssClip(probe, clip) {
-  if (!clip) {
-    return true;
-  }
-
-  const probeWidth = positiveNumber(probe?.width);
-  const clipWidth = positiveNumber(clip.width);
-
-  if (!probeWidth || !clipWidth) {
-    return true;
-  }
-
-  return Math.abs(probeWidth - clipWidth) <= 80;
-}
-
-function positiveNumber(value) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
-export function scaleClipForScreenshot(clip, viewport, imageDimensions) {
-  const imageWidth = positiveNumber(imageDimensions?.width);
-  const imageHeight = positiveNumber(imageDimensions?.height);
-  const viewportWidth = positiveNumber(viewport?.width);
-  const viewportHeight = positiveNumber(viewport?.height);
-
-  if (!clip || !imageWidth || !imageHeight) {
-    return undefined;
-  }
-
-  const scaleX = viewportWidth ? imageWidth / viewportWidth : 1;
-  const scaleY = viewportHeight ? imageHeight / viewportHeight : scaleX;
-  const x = Math.max(0, Math.min(Math.floor(positiveNumber(clip.x) * scaleX), imageWidth - 1));
-  const y = Math.max(0, Math.min(Math.floor(positiveNumber(clip.y) * scaleY), imageHeight - 1));
-  const width = Math.max(1, Math.min(Math.ceil(positiveNumber(clip.width) * scaleX), imageWidth - x));
-  const height = Math.max(1, Math.min(Math.ceil(positiveNumber(clip.height) * scaleY), imageHeight - y));
-
-  return {
-    x,
-    y,
-    width,
-    height,
-  };
+  }, originalCaptureTarget(sampleOrPostId));
 }
 
 async function viewportDimensions(tab) {
@@ -463,7 +400,7 @@ async function captureArticleClipFromViewport(tab, screenshotPath, inspectScreen
   writeFileSync(screenshotPath, screenshot);
   const viewportProbe = inspectScreenshot ? inspectScreenshot(screenshotPath) : undefined;
 
-  if (inspectScreenshot && !contentfulProbeResult(viewportProbe)) {
+  if (inspectScreenshot && !contentfulOriginalProbeResult(viewportProbe)) {
     return undefined;
   }
 
@@ -472,7 +409,7 @@ async function captureArticleClipFromViewport(tab, screenshotPath, inspectScreen
   }
 
   const probe = inspectScreenshot ? inspectScreenshot(screenshotPath) : undefined;
-  if (inspectScreenshot && !contentfulProbeResult(probe)) {
+  if (inspectScreenshot && !contentfulOriginalProbeResult(probe)) {
     return undefined;
   }
 
@@ -532,7 +469,7 @@ async function waitForScreenshotPaint(tab, sampleOrPostId, clip, attempt) {
       window.scrollBy(0, -1);
       await wait(160);
       return true;
-    }, captureTarget(sampleOrPostId))
+    }, originalCaptureTarget(sampleOrPostId))
     .catch(() => false);
 
   if (clip && tab.cua?.move) {
@@ -568,7 +505,7 @@ export async function captureWithProbe(tab, screenshotPath, inspectScreenshot, c
       writeFileSync(screenshotPath, screenshot);
       const probe = inspectScreenshot ? inspectScreenshot(screenshotPath) : undefined;
 
-      if (!inspectScreenshot || (contentfulProbeResult(probe) && probeMatchesCssClip(probe, activeClip ?? clip))) {
+      if (!inspectScreenshot || (contentfulOriginalProbeResult(probe) && originalProbeMatchesCssClip(probe, activeClip ?? clip))) {
         return {
           mode,
           captureMethod: mode === "article_clip" ? "direct_clip" : undefined,
@@ -577,7 +514,7 @@ export async function captureWithProbe(tab, screenshotPath, inspectScreenshot, c
         };
       }
 
-      if (mode === "article_clip" && contentfulProbeResult(probe) && !probeMatchesCssClip(probe, activeClip ?? clip)) {
+      if (mode === "article_clip" && contentfulOriginalProbeResult(probe) && !originalProbeMatchesCssClip(probe, activeClip ?? clip)) {
         break;
       }
 
@@ -602,50 +539,9 @@ export async function captureWithProbe(tab, screenshotPath, inspectScreenshot, c
     };
   }
 
-function originalValidationErrors(facts, probe, screenshotQuality) {
-  const validationErrors = [];
-
-  if (!facts?.foundExactArticle) {
-    validationErrors.push("original_exact_article_not_found");
-  }
-
-  if (!probe || probe.blank || String(probe.reason ?? "").startsWith("probe_failed")) {
-    validationErrors.push(probe?.blank ? `original_screenshot_blank:${probe.reason}` : "missing_original_screenshot_probe");
-  }
-
-  for (const qualityIssue of originalScreenshotQualityIssues({ facts, probe, screenshotQuality })) {
-    validationErrors.push(qualityIssue);
-  }
-
-  return validationErrors;
-}
-
-function retryableOriginalValidationIssue(issue) {
-  return (
-    issue.startsWith("original_screenshot_blank:") ||
-    issue === "missing_original_screenshot_probe" ||
-    issue.startsWith("original_screenshot_not_target_article:") ||
-    issue === "original_screenshot_likely_viewport_capture" ||
-    issue === "original_screenshot_missing_capture_method" ||
-    issue === "original_screenshot_clip_width_mismatch" ||
-    issue === "original_screenshot_clip_x_mismatch" ||
-    issue === "original_screenshot_probe_width_mismatch" ||
-    issue === "original_screenshot_likely_interstitial" ||
-    issue === "original_screenshot_right_rail_risk"
-  );
-}
-
-export function retryableOriginalCaptureErrors(validationErrors, error) {
-  if (error) {
-    return !/original_requires_auth/i.test(String(error instanceof Error ? error.message : error));
-  }
-
-  return validationErrors.length > 0 && validationErrors.every(retryableOriginalValidationIssue);
-}
-
 async function captureOriginalEvidenceEntry({ browser, sample, index, batchLength, captureDir, inspectScreenshot, timeoutMs, maxCaptureAttempts }) {
   const postId = String(sample.postId);
-  const slug = `${String(index + 1).padStart(3, "0")}-${sanitize(sampleAuthorSlug(sample))}-${postId}`;
+  const slug = `${String(index + 1).padStart(3, "0")}-${sanitizeOriginalCaptureSlug(originalCaptureAuthorSlug(sample))}-${postId}`;
   const screenshotPath = join(captureDir, `${slug}-original.png`);
   let lastEntry;
 
