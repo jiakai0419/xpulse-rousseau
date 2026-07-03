@@ -9,6 +9,12 @@ import {
   originalEvidenceCoverage,
   validOriginalEvidenceEntry,
 } from "../../scripts/display-evidence-core.mjs";
+import {
+  buildOriginalEvidenceCacheReport,
+  compactOriginalEvidenceSample,
+  markdownOriginalEvidenceCacheReport,
+  originalEvidenceNextCaptureBatch,
+} from "../../scripts/display-original-evidence-cache-core.mjs";
 
 const tempDir = mkdtempSync(join(tmpdir(), "xpulse-original-evidence-cache-test-"));
 const screenshot = join(tempDir, "original.png");
@@ -34,6 +40,115 @@ function evidence(id: string, overrides = {}) {
 test("normalizes array and store-shaped Original evidence documents", () => {
   assert.deepEqual(normalizeOriginalEvidenceDocument([evidence("1")]).map((item) => item.id), ["1"]);
   assert.deepEqual(normalizeOriginalEvidenceDocument({ entries: [evidence("2")] }).map((item) => item.id), ["2"]);
+});
+
+test("Original evidence cache core compacts owner-readable samples", () => {
+  assert.deepEqual(
+    compactOriginalEvidenceSample({
+      index: 7,
+      postId: "123",
+      url: "https://x.com/example/status/123",
+      author: {
+        username: "example",
+      },
+      buckets: ["video"],
+      risks: ["autoplay"],
+      missingData: ["card"],
+      textStart: "hello",
+      ignoredLargeField: "not persisted",
+    }),
+    {
+      index: 7,
+      postId: "123",
+      url: "https://x.com/example/status/123",
+      author: "@example",
+      buckets: ["video"],
+      risks: ["autoplay"],
+      missingData: ["card"],
+      textStart: "hello",
+    },
+  );
+});
+
+test("Original evidence cache core plans invalid evidence before missing evidence", () => {
+  const nextBatch = originalEvidenceNextCaptureBatch(
+    {
+      covered: [{ sample: { postId: "covered" }, entry: evidence("covered") }],
+      invalid: [
+        {
+          sample: { index: 1, postId: "invalid", url: "https://x.com/a/status/1" },
+          entry: evidence("invalid"),
+          issues: ["screenshot_blank:mostly_white"],
+        },
+      ],
+      missing: [
+        { index: 2, postId: "missing-a", url: "https://x.com/a/status/2" },
+        { index: 3, postId: "missing-b", url: "https://x.com/a/status/3" },
+      ],
+    },
+    2,
+  );
+
+  assert.deepEqual(
+    nextBatch.map((sample) => sample.postId),
+    ["invalid", "missing-a"],
+  );
+});
+
+test("Original evidence cache core builds stable JSON and Markdown reports", () => {
+  const report = buildOriginalEvidenceCacheReport({
+    createdAt: "2026-07-03T00:00:00.000Z",
+    inventoryReportPath: ".data/display-gap-inventory/report.json",
+    storePath: ".data/display-original-evidence/original-evidence-store.json",
+    importedPath: "capture/original-chrome-results.json",
+    importedCount: 2,
+    assetReport: {
+      persistedExternalScreenshots: 1,
+      repairedMissingScreenshots: 0,
+      unresolvedMissingScreenshots: 0,
+      ambiguousMissingScreenshots: 0,
+    },
+    inventorySampleCount: 3,
+    coverage: {
+      covered: [{ sample: { postId: "1" }, entry: evidence("1") }],
+      invalid: [
+        {
+          sample: { index: 2, postId: "2", url: "https://x.com/a/status/2" },
+          entryId: "2",
+          issues: ["missing_facts"],
+        },
+      ],
+      missing: [{ index: 3, postId: "3", url: "https://x.com/a/status/3" }],
+    },
+    nextBatch: [{ index: 2, postId: "2", url: "https://x.com/a/status/2" }],
+    resolvePath: (value) => `/abs/${value}`,
+  });
+
+  assert.equal(report.coveredCount, 1);
+  assert.equal(report.invalidCount, 1);
+  assert.equal(report.missingCount, 1);
+  assert.equal(report.importedPath, "/abs/capture/original-chrome-results.json");
+  assert.deepEqual(report.invalid[0], {
+    sample: {
+      index: 2,
+      postId: "2",
+      url: "https://x.com/a/status/2",
+      author: undefined,
+      buckets: [],
+      risks: [],
+      missingData: [],
+      textStart: undefined,
+    },
+    issues: ["missing_facts"],
+    entryId: "2",
+  });
+
+  const markdown = markdownOriginalEvidenceCacheReport(report);
+  assert.match(markdown, /# Original Rendering Evidence/);
+  assert.match(markdown, /Cached valid samples: 1/);
+  assert.match(markdown, /\| 2 \| \[2\]\(https:\/\/x.com\/a\/status\/2\)/);
+  assert.match(markdown, /Invalid Cached Evidence/);
+  assert.match(markdown, /missing_facts/);
 });
 
 test("validOriginalEvidenceEntry requires screenshot, contentful probe, and facts", () => {

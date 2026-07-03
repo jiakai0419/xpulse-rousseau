@@ -68,6 +68,7 @@ Most scripts should be reached through the command names above. A few files in `
 | `scripts/display-local-reader-evidence.mjs` | Shared local Reader evidence capture: starts a replay server, opens the Reader in Playwright, captures local screenshots, local DOM facts, and screenshot probes for inventory samples. |
 | `scripts/display-oracle-core.mjs` | Shared Local-vs-Original rendering comparison logic used by display commands and tests. |
 | `scripts/display-original-capture-core.mjs` | Shared pure Original X capture rules: target article matching, target normalization, screenshot filename slugs, contentful screenshot probes, CSS clip scaling, validation errors, and retry classification. |
+| `scripts/display-original-evidence-cache-core.mjs` | Shared pure Original evidence cache rules: compact capture-batch samples, plan the next missing/invalid Original capture batch, and build stable cache reports. |
 | `scripts/display-screenshot-quality.mjs` | Screenshot quality probes used by Original evidence and Oracle checks. |
 | `scripts/env-utils.mjs` | Shared host, process, and temporary server helpers. |
 | `scripts/render-buckets.mjs` | Shared X rendering bucket classification used by coverage, replay rendering, and tests. |
