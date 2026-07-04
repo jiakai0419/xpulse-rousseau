@@ -4,10 +4,84 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  captureWithProbe,
+  contentfulOriginalProbeResult,
+  originalCaptureAuthorSlug,
+  originalCaptureTarget,
+  originalProbeMatchesCssClip,
+  originalValidationErrors,
   retryableOriginalCaptureErrors,
+  sanitizeOriginalCaptureSlug,
   scaleClipForScreenshot,
+} from "../../scripts/display-original-capture-core.mjs";
+import {
+  captureWithProbe,
 } from "../../scripts/display-original-evidence-chrome-capture.mjs";
+
+test("Original capture core normalizes targets and screenshot file slugs", () => {
+  assert.deepEqual(originalCaptureTarget("2062933748585283776"), {
+    postId: "2062933748585283776",
+    textStart: "",
+  });
+  assert.deepEqual(originalCaptureTarget({ postId: 123, textStart: "A real X-derived post" }), {
+    postId: "123",
+    textStart: "A real X-derived post",
+  });
+  assert.deepEqual(originalCaptureTarget({ id: 456 }), {
+    postId: "456",
+    textStart: "",
+  });
+
+  assert.equal(originalCaptureAuthorSlug({ author: { username: "alice" } }), "alice");
+  assert.equal(originalCaptureAuthorSlug({ author: { name: "Alice Example" } }), "Alice Example");
+  assert.equal(sanitizeOriginalCaptureSlug("@Alice Example / Research!"), "Alice-Example-Research");
+  assert.equal(sanitizeOriginalCaptureSlug(""), "unknown");
+});
+
+test("Original capture core classifies contentful probes and clip width matches", () => {
+  assert.equal(contentfulOriginalProbeResult({ blank: false, reason: "contentful" }), true);
+  assert.equal(contentfulOriginalProbeResult({ blank: true, reason: "mostly_white" }), false);
+  assert.equal(contentfulOriginalProbeResult({ blank: false, reason: "probe_failed:png" }), false);
+
+  assert.equal(originalProbeMatchesCssClip({ width: 600 }, { width: 650 }), true);
+  assert.equal(originalProbeMatchesCssClip({ width: 600 }, { width: 720 }), false);
+  assert.equal(originalProbeMatchesCssClip({ width: 0 }, { width: 720 }), true);
+  assert.equal(originalProbeMatchesCssClip({ width: 600 }, undefined), true);
+});
+
+test("Original capture core validates missing article and low-quality screenshots", () => {
+  assert.deepEqual(
+    originalValidationErrors(
+      { foundExactArticle: false },
+      { blank: true, reason: "mostly_white" },
+      { mode: "article_clip", captureMethod: "direct_clip" },
+    ),
+    ["original_exact_article_not_found", "original_screenshot_blank:mostly_white"],
+  );
+
+  assert.deepEqual(
+    originalValidationErrors(
+      {
+        foundExactArticle: true,
+        articleRect: { x: 0, width: 600 },
+      },
+      {
+        blank: false,
+        reason: "contentful",
+        width: 1200,
+        height: 800,
+        whiteRatio: 0.4,
+        darkRatio: 0.1,
+        variance: 200,
+      },
+      {
+        mode: "viewport_after_blank_clip",
+        captureMethod: "viewport",
+        clip: { x: 0, width: 600 },
+      },
+    ),
+    ["original_screenshot_not_target_article:viewport_after_blank_clip"],
+  );
+});
 
 test("captureWithProbe retries blank screenshots until a contentful capture is available", async () => {
   const tempDir = mkdtempSync(join(tmpdir(), "xpulse-original-capture-test-"));
