@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   contentfulOriginalProbeResult,
+  originalArticleMatchTarget,
   originalCaptureAuthorSlug,
-  originalCaptureTarget,
   originalProbeMatchesCssClip,
   originalValidationErrors,
   retryableOriginalCaptureErrors,
@@ -16,37 +16,45 @@ import { buildOriginalScreenshotQuality } from "./display-screenshot-quality.mjs
 
 export { retryableOriginalCaptureErrors, scaleClipForScreenshot } from "./display-original-capture-core.mjs";
 
+function originalArticleEvaluatePayload(sampleOrPostId, options) {
+  return {
+    target: originalArticleMatchTarget(sampleOrPostId, options),
+  };
+}
+
 export function loadOriginalCaptureBatch(batchPath) {
   return JSON.parse(readFileSync(batchPath, "utf8")).samples ?? [];
 }
 
 export async function readXOriginalArticleEvidence(tab, sampleOrPostId) {
-  return tab.playwright.evaluate((target) => {
+  return tab.playwright.evaluate(({ target }) => {
     const normalize = (value) =>
       String(value ?? "")
         .replace(/https?:\/\/\S+/g, "")
         .replace(/\s+/g, " ")
         .trim()
         .toLowerCase();
-    const fullFingerprint = normalize(target.textStart);
-    const fingerprint = fullFingerprint.slice(0, 72);
-    const articleMatches = (article) => {
+    const articleMatch = (article) => {
       const hasStatusLink = Array.from(article.querySelectorAll("a[href]")).some((link) =>
-        String(link.getAttribute("href") ?? "").includes(`/status/${target.postId}`),
+        String(link.getAttribute("href") ?? "").includes(target.postStatusPath),
       );
 
       if (hasStatusLink) {
-        return true;
+        return { matches: true, method: "status_link" };
       }
 
-      if (fingerprint.length >= 24 && normalize(article.innerText).includes(fingerprint)) {
-        return true;
+      const articleText = normalize(article.innerText);
+      if (target.fingerprint.length >= target.fingerprintMinLength && articleText.includes(target.fingerprint)) {
+        return { matches: true, method: "text_fingerprint" };
       }
 
-      const terms = fullFingerprint.split(" ").filter((term) => term.length > 4).slice(0, 8);
-      return terms.length >= 3 && terms.every((term) => normalize(article.innerText).includes(term));
+      if (target.terms.length >= 3 && target.terms.every((term) => articleText.includes(term))) {
+        return { matches: true, method: "term_fallback" };
+      }
+
+      return { matches: false, method: undefined };
     };
-    const root = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).find(articleMatches);
+    const root = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).find((article) => articleMatch(article).matches);
 
     if (!root) {
       return {
@@ -101,11 +109,7 @@ export async function readXOriginalArticleEvidence(tab, sampleOrPostId) {
           rect: rect(node),
         })),
         foundExactArticle: true,
-        matchMethod: Array.from(root.querySelectorAll("a[href]")).some((link) =>
-          String(link.getAttribute("href") ?? "").includes(`/status/${target.postId}`),
-        )
-          ? "status_link"
-          : "text_fingerprint",
+        matchMethod: articleMatch(root).method,
         media: mediaElements.map((element) => ({
           tag: element.tagName.toLowerCase(),
           alt: element.getAttribute("alt") ?? "",
@@ -121,7 +125,7 @@ export async function readXOriginalArticleEvidence(tab, sampleOrPostId) {
         url: location.href,
       },
     };
-  }, originalCaptureTarget(sampleOrPostId));
+  }, originalArticleEvaluatePayload(sampleOrPostId));
 }
 
 export async function collectXOriginalFacts(tab, sampleOrPostId) {
@@ -181,36 +185,34 @@ export async function revealXOriginalInterstitials(tab) {
 
 export async function waitForXOriginalArticle(tab, sampleOrPostId, timeoutMs = 45_000) {
   const page = tab.playwright;
-  const target = originalCaptureTarget(sampleOrPostId);
+  const target = originalArticleMatchTarget(sampleOrPostId);
   const startedAt = Date.now();
   let scrollStep = 0;
 
   while (Date.now() - startedAt < timeoutMs) {
     const state = await page
-      .evaluate((targetInfo) => {
+      .evaluate(({ target }) => {
         const normalize = (value) =>
           String(value ?? "")
             .replace(/https?:\/\/\S+/g, "")
             .replace(/\s+/g, " ")
             .trim()
             .toLowerCase();
-        const fullFingerprint = normalize(targetInfo.textStart);
-        const fingerprint = fullFingerprint.slice(0, 72);
-        const articleMatches = (candidate) => {
-          const hasStatusLink = Array.from(candidate.querySelectorAll("a[href]")).some((link) =>
-            String(link.getAttribute("href") ?? "").includes(`/status/${targetInfo.postId}`),
+        const articleMatches = (article) => {
+          const hasStatusLink = Array.from(article.querySelectorAll("a[href]")).some((link) =>
+            String(link.getAttribute("href") ?? "").includes(target.postStatusPath),
           );
 
           if (hasStatusLink) {
             return true;
           }
 
-          if (fingerprint.length >= 24 && normalize(candidate.innerText).includes(fingerprint)) {
+          const articleText = normalize(article.innerText);
+          if (target.fingerprint.length >= target.fingerprintMinLength && articleText.includes(target.fingerprint)) {
             return true;
           }
 
-          const terms = fullFingerprint.split(" ").filter((term) => term.length > 4).slice(0, 8);
-          return terms.length >= 3 && terms.every((term) => normalize(candidate.innerText).includes(term));
+          return target.terms.length >= 3 && target.terms.every((term) => articleText.includes(term));
         };
         const text = document.body?.innerText?.slice(0, 2000) ?? "";
         const article = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).find(articleMatches);
@@ -230,7 +232,7 @@ export async function waitForXOriginalArticle(tab, sampleOrPostId, timeoutMs = 4
           text,
           maxScrollY: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
         };
-      }, target)
+      }, { target })
       .catch(() => ({ found: false, text: "", maxScrollY: 0 }));
 
     if (state.found) {
@@ -265,25 +267,23 @@ export async function waitForXOriginalArticle(tab, sampleOrPostId, timeoutMs = 4
 }
 
 export async function waitForXOriginalMedia(tab, sampleOrPostId) {
-  await tab.playwright.evaluate(async (target) => {
+  await tab.playwright.evaluate(async ({ target }) => {
     const normalize = (value) => String(value ?? "").replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim().toLowerCase();
-    const fullFingerprint = normalize(target.textStart);
-    const fingerprint = fullFingerprint.slice(0, 72);
     const article = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).find((candidate) => {
       const hasStatusLink = Array.from(candidate.querySelectorAll("a[href]")).some((link) =>
-        String(link.getAttribute("href") ?? "").includes(`/status/${target.postId}`),
+        String(link.getAttribute("href") ?? "").includes(target.postStatusPath),
       );
 
       if (hasStatusLink) {
         return true;
       }
 
-      if (fingerprint.length >= 24 && normalize(candidate.innerText).includes(fingerprint)) {
+      const articleText = normalize(candidate.innerText);
+      if (target.fingerprint.length >= target.fingerprintMinLength && articleText.includes(target.fingerprint)) {
         return true;
       }
 
-      const terms = fullFingerprint.split(" ").filter((term) => term.length > 4).slice(0, 8);
-      return terms.length >= 3 && terms.every((term) => normalize(candidate.innerText).includes(term));
+      return target.terms.length >= 3 && target.terms.every((term) => articleText.includes(term));
     });
 
     if (!article) {
@@ -294,33 +294,32 @@ export async function waitForXOriginalMedia(tab, sampleOrPostId) {
 
     const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
     await wait(2200);
-  }, originalCaptureTarget(sampleOrPostId));
+  }, originalArticleEvaluatePayload(sampleOrPostId));
 }
 
 export async function originalArticleClip(tab, sampleOrPostId) {
-  return tab.playwright.evaluate((target) => {
+  return tab.playwright.evaluate(({ target }) => {
     const normalize = (value) =>
       String(value ?? "")
         .replace(/https?:\/\/\S+/g, "")
         .replace(/\s+/g, " ")
         .trim()
         .toLowerCase();
-    const fingerprint = normalize(target.textStart).slice(0, 96);
     const article = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).find((candidate) => {
       const hasStatusLink = Array.from(candidate.querySelectorAll("a[href]")).some((link) =>
-        String(link.getAttribute("href") ?? "").includes(`/status/${target.postId}`),
+        String(link.getAttribute("href") ?? "").includes(target.postStatusPath),
       );
 
       if (hasStatusLink) {
         return true;
       }
 
-      if (fingerprint.length >= 40 && normalize(candidate.innerText).includes(fingerprint)) {
+      const articleText = normalize(candidate.innerText);
+      if (target.fingerprint.length >= target.fingerprintMinLength && articleText.includes(target.fingerprint)) {
         return true;
       }
 
-      const terms = normalize(target.textStart).split(" ").filter((term) => term.length > 4).slice(0, 8);
-      return terms.length >= 3 && terms.every((term) => normalize(candidate.innerText).includes(term));
+      return target.terms.length >= 3 && target.terms.every((term) => articleText.includes(term));
     });
 
     if (!article) {
@@ -336,7 +335,7 @@ export async function originalArticleClip(tab, sampleOrPostId) {
       width,
       height,
     };
-  }, originalCaptureTarget(sampleOrPostId));
+  }, originalArticleEvaluatePayload(sampleOrPostId, { fingerprintLength: 96, fingerprintMinLength: 40 }));
 }
 
 async function viewportDimensions(tab) {
@@ -425,31 +424,29 @@ async function waitForScreenshotPaint(tab, sampleOrPostId, clip, attempt) {
   await tab.playwright.waitForLoadState({ state: "domcontentloaded", timeoutMs: 5_000 }).catch(() => {});
 
   const foundArticle = await tab.playwright
-    .evaluate(async (target) => {
+    .evaluate(async ({ target }) => {
       const normalize = (value) =>
         String(value ?? "")
           .replace(/https?:\/\/\S+/g, "")
           .replace(/\s+/g, " ")
           .trim()
           .toLowerCase();
-      const fullFingerprint = normalize(target.textStart);
-      const fingerprint = fullFingerprint.slice(0, 72);
       const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
       const findArticle = () => Array.from(document.querySelectorAll('article[data-testid="tweet"]')).find((candidate) => {
         const hasStatusLink = Array.from(candidate.querySelectorAll("a[href]")).some((link) =>
-          String(link.getAttribute("href") ?? "").includes(`/status/${target.postId}`),
+          String(link.getAttribute("href") ?? "").includes(target.postStatusPath),
         );
 
         if (hasStatusLink) {
           return true;
         }
 
-        if (fingerprint.length >= 24 && normalize(candidate.innerText).includes(fingerprint)) {
+        const articleText = normalize(candidate.innerText);
+        if (target.fingerprint.length >= target.fingerprintMinLength && articleText.includes(target.fingerprint)) {
           return true;
         }
 
-        const terms = fullFingerprint.split(" ").filter((term) => term.length > 4).slice(0, 8);
-        return terms.length >= 3 && terms.every((term) => normalize(candidate.innerText).includes(term));
+        return target.terms.length >= 3 && target.terms.every((term) => articleText.includes(term));
       });
       let article = findArticle();
 
@@ -469,7 +466,7 @@ async function waitForScreenshotPaint(tab, sampleOrPostId, clip, attempt) {
       window.scrollBy(0, -1);
       await wait(160);
       return true;
-    }, originalCaptureTarget(sampleOrPostId))
+    }, originalArticleEvaluatePayload(sampleOrPostId))
     .catch(() => false);
 
   if (clip && tab.cua?.move) {

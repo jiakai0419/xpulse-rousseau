@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   contentfulOriginalProbeResult,
+  normalizeOriginalArticleText,
+  originalArticleMatchCandidate,
+  originalArticleMatchTarget,
   originalCaptureAuthorSlug,
   originalCaptureTarget,
   originalProbeMatchesCssClip,
@@ -35,6 +38,74 @@ test("Original capture core normalizes targets and screenshot file slugs", () =>
   assert.equal(originalCaptureAuthorSlug({ author: { name: "Alice Example" } }), "Alice Example");
   assert.equal(sanitizeOriginalCaptureSlug("@Alice Example / Research!"), "Alice-Example-Research");
   assert.equal(sanitizeOriginalCaptureSlug(""), "unknown");
+});
+
+test("Original article matcher keeps status link, fingerprint, and term fallback rules explicit", () => {
+  const target = originalArticleMatchTarget({
+    postId: "2062933748585283776",
+    textStart: "Alpha beta gamma delta epsilon zeta https://t.co/raw",
+  });
+
+  assert.equal(target.postStatusPath, "/status/2062933748585283776");
+  assert.equal(target.fullFingerprint, "alpha beta gamma delta epsilon zeta");
+  assert.deepEqual(target.terms, ["alpha", "gamma", "delta", "epsilon"]);
+
+  assert.deepEqual(
+    originalArticleMatchCandidate({
+      target,
+      hrefs: ["/someone/status/2062933748585283776"],
+      text: "unrelated text",
+    }),
+    { matches: true, method: "status_link" },
+  );
+
+  assert.deepEqual(
+    originalArticleMatchCandidate({
+      target,
+      hrefs: [],
+      text: "Noise. Alpha beta gamma delta epsilon zeta.",
+    }),
+    { matches: true, method: "text_fingerprint" },
+  );
+
+  const termsOnlyTarget = {
+    ...target,
+    fingerprint: "this fingerprint is intentionally absent",
+  };
+  assert.deepEqual(
+    originalArticleMatchCandidate({
+      target: termsOnlyTarget,
+      hrefs: [],
+      text: "Alpha and gamma and delta and epsilon are present.",
+    }),
+    { matches: true, method: "term_fallback" },
+  );
+
+  assert.deepEqual(
+    originalArticleMatchCandidate({
+      target,
+      hrefs: [],
+      text: "too little overlap",
+    }),
+    { matches: false, method: undefined },
+  );
+
+  const clipTarget = originalArticleMatchTarget(
+    {
+      postId: "2062933748585283776",
+      textStart: "This target is used by article clip capture and should keep stricter fingerprint matching",
+    },
+    {
+      fingerprintLength: 96,
+      fingerprintMinLength: 40,
+    },
+  );
+  assert.equal(clipTarget.fingerprint.length, clipTarget.fullFingerprint.length);
+  assert.equal(clipTarget.fingerprintMinLength, 40);
+});
+
+test("Original article text normalization removes raw URLs before matching", () => {
+  assert.equal(normalizeOriginalArticleText(" A  https://t.co/raw\n B "), "a b");
 });
 
 test("Original capture core classifies contentful probes and clip width matches", () => {
