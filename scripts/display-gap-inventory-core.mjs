@@ -1,4 +1,9 @@
-import { readerDisplayPost } from "./render-buckets.mjs";
+import {
+  buildSamplePool,
+  buildSelectedSamplePool,
+  readerDisplayPost,
+} from "./render-buckets.mjs";
+import { inventorySampleFromRawSample } from "./display-inventory-samples.mjs";
 
 export function fallbackScore() {
   return {
@@ -41,6 +46,51 @@ export function translationByPostIdFromRuns(runs) {
   }
 
   return translations;
+}
+
+export function addDisplayInventorySample(samples, seenDisplayPostIds, rawSample, pool, maxSamples) {
+  const displayPost = rawSample.displayPost ?? readerDisplayPost(rawSample.timelinePost);
+  if (!displayPost?.id || seenDisplayPostIds.has(displayPost.id) || samples.length >= maxSamples) {
+    return false;
+  }
+
+  seenDisplayPostIds.add(displayPost.id);
+  samples.push(inventorySampleFromRawSample(rawSample, pool, samples.length + 1));
+  return true;
+}
+
+export function selectDisplayInventorySamples({ freshRun, historicalRuns, maxSamples, historySampleLimit }) {
+  const samples = [];
+  const seenDisplayPostIds = new Set();
+  const sampleLimit = Math.max(0, Number(maxSamples) || 0);
+  const selectedLimit = Math.max(0, Number(historySampleLimit) || 0);
+
+  if (freshRun) {
+    for (const sample of buildSamplePool([freshRun])) {
+      addDisplayInventorySample(samples, seenDisplayPostIds, sample, "fresh", sampleLimit);
+    }
+  }
+
+  let historySelectedCount = 0;
+  for (const sample of buildSelectedSamplePool(historicalRuns ?? [])) {
+    if (samples.length >= sampleLimit || historySelectedCount >= selectedLimit) {
+      break;
+    }
+
+    if (addDisplayInventorySample(samples, seenDisplayPostIds, sample, "history-selected", sampleLimit)) {
+      historySelectedCount += 1;
+    }
+  }
+
+  for (const sample of buildSamplePool(historicalRuns ?? [])) {
+    if (samples.length >= sampleLimit) {
+      break;
+    }
+
+    addDisplayInventorySample(samples, seenDisplayPostIds, sample, "history-trace", sampleLimit);
+  }
+
+  return samples;
 }
 
 export function inventoryRunFromPosts(posts, createdAt) {
