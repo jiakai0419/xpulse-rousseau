@@ -102,7 +102,7 @@ These are candidate tracks, not automatic commitments. Pick one, complete it, ve
 
 ### 1. Display Evidence Tooling Boundary
 
-**Status:** Candidate for Phase 2.
+**Status:** In progress for Phase 2.
 
 **Goal:** Make the X display-fidelity tooling easier to understand and maintain without changing Reader rendering behavior.
 
@@ -119,7 +119,9 @@ The display tools are successful when they help answer four owner-level question
 
 **Current assessment:** The system now serves the larger goal reasonably well. It has real X-derived inventories, Original evidence caching, strict Oracle blocking for missing or low-quality evidence, screenshot-quality checks, screenshot review sheets, replay rendering regression, and fresh Pulse validation. However, the implementation still carries its history as temporary tooling. The evidence concepts are stronger than the code structure that hosts them.
 
-**Main design pressure:** `scripts/display-gap-inventory.ts` is the clearest overloaded boundary. It currently handles sample selection, optional fresh X fetching, preview enrichment, local replay-run construction, local server and browser lifecycle, Reader facts extraction, screenshot capture, screenshot probing, and report writing. Those are legitimate stages, but keeping them in one script makes the evidence system harder to reason about than it needs to be.
+**Phase 2 progress as of 2026-07-05:** The first Display Evidence Tooling cleanup slices are complete. Command/data governance, display inventory sample helpers, local Reader evidence capture, Original capture core helpers, Original article matching rules, and Original evidence cache core helpers have already been extracted and tested. Do not repeat those extractions. The remaining pressure is the orchestration layer around local inventory collection and report construction, especially `scripts/display-gap-inventory.ts`.
+
+**Main design pressure:** `scripts/display-gap-inventory.ts` is the clearest overloaded boundary. It still handles environment/configuration, sample selection, optional fresh X fetching, preview enrichment, local inventory-run construction, local evidence capture orchestration, and report writing. Some high-risk pieces are already extracted, so the next cleanup should shrink the remaining orchestration script around explicit inventory/report helpers rather than moving browser capture code again.
 
 **Refactor hypothesis:** Effective Phase 2 work should make the evidence system's domain language explicit before moving code for its own sake. The useful abstractions are not "misc helpers"; they are:
 
@@ -165,13 +167,21 @@ The first useful code cleanup is therefore to extract stable evidence contracts 
 - Do not start by adding screenshot pixel-diff thresholds. First make current evidence contracts and stages explicit; then decide whether image comparison needs stronger automation.
 - Do not rewrite all display scripts in one PR.
 
-**Recommended first slice:**
+**Completed first slices:**
 
-1. Extract explicit display evidence contracts and tiny read/write helpers for inventory samples, Original evidence entries, Oracle rows, screenshot probes, and screenshot quality.
-2. Move sample bucket/risk classification behind those contracts without changing bucket names or reports.
-3. Split local Reader evidence capture out of `display-gap-inventory.ts`, keeping the npm command and output paths unchanged.
-4. Add unit tests around the extracted contracts before changing orchestration.
-5. Run the existing replay and full-inventory display gates before and after the slice.
+- Extracted display inventory sample helpers and bucket/risk classification.
+- Split local Reader evidence capture out of `display-gap-inventory.ts`, keeping command names and output paths unchanged.
+- Extracted Original capture core helpers and article matching rules.
+- Extracted Original evidence cache planning/import/validation core helpers.
+- Added unit coverage for those extracted boundaries.
+
+**Current recommended slice:**
+
+1. Extract local inventory run and report construction from `display-gap-inventory.ts`.
+2. Keep command orchestration, environment variables, optional fresh X fetching, preview enrichment, file writing, and browser execution in the command script.
+3. Keep the new helper limited to pure evidence inventory rules: fresh no-OpenAI inventory run construction, audit replay run construction from samples, score/translation lookup from saved X-derived runs, bucket/risk/missing-data report counts, and Markdown report generation.
+4. Add unit tests around the extracted helper before changing behavior elsewhere.
+5. Run the existing replay and display-tooling gates after the slice.
 
 **Verification:**
 
