@@ -12,8 +12,13 @@ import { getHost } from "./env-utils.mjs";
 import {
   buildSamplePool,
   buildSelectedSamplePool,
-  readerDisplayPost,
 } from "./render-buckets.mjs";
+import {
+  auditRunFromSamples,
+  buildDisplayGapInventoryReport,
+  inventoryRunFromPosts,
+  markdownDisplayGapInventoryReport,
+} from "./display-gap-inventory-core.mjs";
 import {
   enrichPostXArticlePreviewsFromEvidence,
   inventorySampleForJson,
@@ -83,42 +88,6 @@ function readRunStore(filePath: string): { runs: RefreshRun[] } {
   }
 }
 
-function scoreByPostIdFromRuns(runs: RefreshRun[]): Map<string, unknown> {
-  const scores = new Map<string, unknown>();
-
-  for (const run of runs) {
-    for (const selected of run.selectedPosts ?? []) {
-      scores.set(selected.post.id, selected.score);
-      scores.set(readerDisplayPost(selected.post).id, selected.score);
-    }
-
-    for (const decision of run.trace?.decisions ?? []) {
-      if (decision.score?.weightedScore) {
-        scores.set(decision.postId, decision.score.weightedScore);
-      }
-    }
-  }
-
-  return scores;
-}
-
-function translationByPostIdFromRuns(runs: RefreshRun[]): Map<string, unknown> {
-  const translations = new Map<string, unknown>();
-
-  for (const run of runs) {
-    for (const selected of run.selectedPosts ?? []) {
-      if (!selected.translation) {
-        continue;
-      }
-
-      translations.set(selected.post.id, selected.translation);
-      translations.set(readerDisplayPost(selected.post).id, selected.translation);
-    }
-  }
-
-  return translations;
-}
-
 function addInventorySample(samples: InventorySample[], seen: Set<string>, rawSample: any, pool: InventorySample["pool"]): boolean {
   const displayPost = rawSample.displayPost as TimelinePost;
   if (seen.has(displayPost.id) || samples.length >= maxSamples) {
@@ -175,49 +144,6 @@ async function enrichInventorySamples(samples: InventorySample[]): Promise<void>
   }
 }
 
-function inventoryRunFromPosts(posts: TimelinePost[], createdAt: string): RefreshRun {
-  return {
-    id: `inventory_fresh_${Date.parse(createdAt)}`,
-    createdAt,
-    source: "x",
-    stats: {
-      fetched: posts.length,
-      adsExcluded: 0,
-      duplicatesExcluded: 0,
-      seenExcluded: 0,
-      scored: 0,
-      selected: 0,
-    },
-    selectedPosts: [],
-    usage: [],
-    trace: {
-      version: "run-trace-v1",
-      runId: `inventory_fresh_${Date.parse(createdAt)}`,
-      createdAt,
-      source: "x",
-      pipelineVersion: "reader-refresh-v1",
-      config: {
-        selectedPostCount: 0,
-        scoringWeights: [],
-        configuredModels: {
-          scoring: "inventory-no-openai",
-          translation: "inventory-no-openai",
-        },
-        batches: {
-          scoring: 0,
-          translation: 0,
-        },
-        promptVersions: {
-          scoring: "scoring-v2",
-          translation: "translation-v2",
-        },
-      },
-      inputPosts: posts.map((post, fetchIndex) => ({ post, fetchIndex })),
-      decisions: [],
-    },
-  };
-}
-
 async function fetchFreshRun(): Promise<{ run?: RefreshRun; rawSnapshots: XRawTimelineSnapshot[]; usage: UsageRecord[] }> {
   if (!includeFresh) {
     return { rawSnapshots: [], usage: [] };
@@ -253,108 +179,9 @@ async function fetchFreshRun(): Promise<{ run?: RefreshRun; rawSnapshots: XRawTi
     },
   });
   const createdAt = new Date().toISOString();
-  const run = inventoryRunFromPosts(posts, createdAt);
+  const run = inventoryRunFromPosts(posts, createdAt) as RefreshRun;
   run.usage = usage;
   return { run, rawSnapshots, usage };
-}
-
-function fallbackScore() {
-  return {
-    total: 0,
-    dimensions: [],
-  };
-}
-
-function auditRunFromSamples(samples: InventorySample[], runs: RefreshRun[]): RefreshRun {
-  const scores = scoreByPostIdFromRuns(runs);
-  const translations = translationByPostIdFromRuns(runs);
-  const now = new Date().toISOString();
-
-  return {
-    id: `display_inventory_${Date.now()}`,
-    createdAt: now,
-    source: "x",
-    stats: {
-      fetched: samples.length,
-      adsExcluded: 0,
-      duplicatesExcluded: 0,
-      seenExcluded: 0,
-      scored: samples.length,
-      selected: samples.length,
-    },
-    selectedPosts: samples.map((sample) => {
-      const timelineId = sample.timelinePost.id;
-      const displayId = sample.displayPost.id;
-      const translation = translations.get(timelineId) ?? translations.get(displayId);
-      return {
-        post: sample.timelinePost,
-        score: scores.get(timelineId) ?? scores.get(displayId) ?? fallbackScore(),
-        ...(translation ? { translation } : {}),
-      };
-    }),
-    usage: [],
-  };
-}
-
-function countBy<T extends string>(items: T[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const item of items) {
-    counts[item] = (counts[item] ?? 0) + 1;
-  }
-  return Object.fromEntries(Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)));
-}
-
-function markdownReport(report: any): string {
-  const lines = [
-    "# Display Gap Inventory",
-    "",
-    `Created: ${report.createdAt}`,
-    `Output: \`${report.outputDir}\``,
-    `Historical runs scanned: ${report.historyRunCount}`,
-    `Fresh capture: ${report.freshRunId ? `${report.freshRunId} (${report.freshPostCount} posts)` : "not requested"}`,
-    `Samples inventoried: ${report.samples.length}`,
-    "",
-    "## Screenshot Reliability",
-    "",
-    `Local screenshots attempted: ${report.screenshotSummary.localAttempted}`,
-    `Local blank/near-uniform screenshots: ${report.screenshotSummary.localBlank}`,
-    "",
-    "Original X screenshots are intentionally not treated as solved by this inventory command. For this round, the report keeps exact Original URLs and local screenshots, then the high-risk rows should be opened in the user's already-authenticated Chrome window for visual comparison. Screenshot failures must be recorded as tooling gaps, not ignored.",
-    "",
-    "## Risk Counts",
-    "",
-    "| Risk | Count |",
-    "| --- | ---: |",
-  ];
-
-  for (const [risk, count] of Object.entries(report.riskCounts)) {
-    lines.push(`| ${risk} | ${count} |`);
-  }
-
-  lines.push("", "## Bucket Counts", "", "| Bucket | Count |", "| --- | ---: |");
-  for (const [bucket, count] of Object.entries(report.bucketCounts)) {
-    lines.push(`| ${bucket} | ${count} |`);
-  }
-
-  lines.push("", "## Missing Data Counts", "", "| Missing Data | Count |", "| --- | ---: |");
-  for (const [missing, count] of Object.entries(report.missingDataCounts)) {
-    lines.push(`| ${missing} | ${count} |`);
-  }
-
-  lines.push("", "## High-Risk Samples", "", "| # | Pool | Author | Buckets | Risks | Missing Data | Local | Original | Text |", "| ---: | --- | --- | --- | --- | --- | --- | --- | --- |");
-  for (const sample of report.samples.filter((item: any) => item.risks.length || item.missingData.length).slice(0, 40)) {
-    lines.push(
-      `| ${sample.index} | ${sample.pool} | @${sample.author.username} | ${sample.buckets.join(", ") || "-"} | ${sample.risks.join(", ") || "-"} | ${sample.missingData.join(", ") || "-"} | ${sample.localScreenshot ? `[local](${sample.localScreenshot})` : "-"} | [X](${sample.url}) | ${sample.textStart.replaceAll("|", "\\|")} |`,
-    );
-  }
-
-  lines.push("", "## Notes", "");
-  lines.push("- This inventory uses real X-derived data only: saved live runs plus optional fresh X API capture.");
-  lines.push("- Fresh capture does not call OpenAI, does not update Seen Ledger, and does not update the product timeline cursor.");
-  lines.push("- X Article links (`x.com/i/article/...`) are tracked explicitly because they can render as rich X Article cards on Original pages while X API tweet entities may only provide a URL.");
-  lines.push("- Use this report to decide whether to add API enrichment, rendering rules, or targeted regression specimens before the next refactor block.");
-
-  return `${lines.join("\n")}\n`;
 }
 
 async function main() {
@@ -407,7 +234,7 @@ async function main() {
     enabled: renderLocal,
     outputDir,
     runStorePath: localRunStorePath,
-    replayRun: auditRunFromSamples(samples, runs),
+    replayRun: auditRunFromSamples(samples, runs) as RefreshRun,
     host,
     port,
     browserChannel: localBrowserChannel,
@@ -416,25 +243,20 @@ async function main() {
   });
 
   const reportSamples = samples.map(inventorySampleForJson);
-  const report = {
+  const report = buildDisplayGapInventoryReport({
     createdAt: new Date().toISOString(),
     sourceStorePath,
     outputDir,
     includeFresh,
-    freshRunId: fresh.run?.id,
-    freshPostCount: fresh.run?.trace?.inputPosts?.length ?? 0,
-    historyRunCount: historicalRuns.length,
-    sampledRunIds: runs.map((run) => run.id),
-    sampleCount: reportSamples.length,
-    bucketCounts: countBy(reportSamples.flatMap((sample) => sample.buckets)),
-    riskCounts: countBy(reportSamples.flatMap((sample) => sample.risks)),
-    missingDataCounts: countBy(reportSamples.flatMap((sample) => sample.missingData)),
+    freshRun: fresh.run,
+    historicalRuns,
+    runs,
+    reportSamples,
     screenshotSummary: localReaderEvidenceSummary(samples),
-    samples: reportSamples,
-  };
+  });
 
   writeFileSync(join(outputDir, "report.json"), JSON.stringify(report, null, 2), "utf8");
-  writeFileSync(join(outputDir, "report.md"), markdownReport(report), "utf8");
+  writeFileSync(join(outputDir, "report.md"), markdownDisplayGapInventoryReport(report), "utf8");
 
   console.log(`OK x-display:collect-local-renderings: sampled ${report.sampleCount} real X-derived posts.`);
   console.log(`Report: ${join(outputDir, "report.md")}`);
