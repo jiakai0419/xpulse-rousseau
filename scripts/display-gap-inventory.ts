@@ -10,19 +10,15 @@ import { FileXTokenStore } from "../src/services/x/tokenStore.ts";
 import type { XRawTimelineSnapshot } from "../src/services/x/rawSnapshotStore.ts";
 import { getHost } from "./env-utils.mjs";
 import {
-  buildSamplePool,
-  buildSelectedSamplePool,
-} from "./render-buckets.mjs";
-import {
   auditRunFromSamples,
   buildDisplayGapInventoryReport,
   inventoryRunFromPosts,
   markdownDisplayGapInventoryReport,
+  selectDisplayInventorySamples,
 } from "./display-gap-inventory-core.mjs";
 import {
   enrichPostXArticlePreviewsFromEvidence,
   inventorySampleForJson,
-  inventorySampleFromRawSample,
   refreshInventorySampleDerivedFields,
 } from "./display-inventory-samples.mjs";
 import {
@@ -86,17 +82,6 @@ function readRunStore(filePath: string): { runs: RefreshRun[] } {
 
     throw error;
   }
-}
-
-function addInventorySample(samples: InventorySample[], seen: Set<string>, rawSample: any, pool: InventorySample["pool"]): boolean {
-  const displayPost = rawSample.displayPost as TimelinePost;
-  if (seen.has(displayPost.id) || samples.length >= maxSamples) {
-    return false;
-  }
-
-  seen.add(displayPost.id);
-  samples.push(inventorySampleFromRawSample(rawSample, pool, samples.length + 1) as InventorySample);
-  return true;
 }
 
 function readOriginalEvidenceEntries(): any[] {
@@ -204,30 +189,12 @@ async function main() {
     writeFileSync(join(outputDir, "fresh-usage.json"), JSON.stringify({ usage: fresh.usage }, null, 2), "utf8");
   }
 
-  const samples: InventorySample[] = [];
-  const seen = new Set<string>();
-
-  if (fresh.run) {
-    for (const sample of buildSamplePool([fresh.run])) {
-      addInventorySample(samples, seen, sample, "fresh");
-    }
-  }
-
-  for (const sample of buildSelectedSamplePool(historicalRuns)) {
-    if (samples.length >= maxSamples || samples.filter((item) => item.pool === "history-selected").length >= historySampleLimit) {
-      break;
-    }
-
-    addInventorySample(samples, seen, sample, "history-selected");
-  }
-
-  for (const sample of buildSamplePool(historicalRuns)) {
-    if (samples.length >= maxSamples) {
-      break;
-    }
-
-    addInventorySample(samples, seen, sample, "history-trace");
-  }
+  const samples = selectDisplayInventorySamples({
+    freshRun: fresh.run,
+    historicalRuns,
+    maxSamples,
+    historySampleLimit,
+  }) as InventorySample[];
 
   await enrichInventorySamples(samples);
   await collectLocalReaderEvidence(samples, {

@@ -173,14 +173,15 @@ The first useful code cleanup is therefore to extract stable evidence contracts 
 - Split local Reader evidence capture out of `display-gap-inventory.ts`, keeping command names and output paths unchanged.
 - Extracted Original capture core helpers and article matching rules.
 - Extracted Original evidence cache planning/import/validation core helpers.
+- Extracted local inventory run and report construction from `display-gap-inventory.ts`.
 - Added unit coverage for those extracted boundaries.
 
 **Current recommended slice:**
 
-1. Extract local inventory run and report construction from `display-gap-inventory.ts`.
+1. Extract sample selection from `display-gap-inventory.ts`.
 2. Keep command orchestration, environment variables, optional fresh X fetching, preview enrichment, file writing, and browser execution in the command script.
-3. Keep the new helper limited to pure evidence inventory rules: fresh no-OpenAI inventory run construction, audit replay run construction from samples, score/translation lookup from saved X-derived runs, bucket/risk/missing-data report counts, and Markdown report generation.
-4. Add unit tests around the extracted helper before changing behavior elsewhere.
+3. Keep the helper limited to pure sampling rules: fresh samples first, then historical selected posts, then historical trace input posts; dedupe by reader-facing display post id; preserve `fresh`, `history-selected`, and `history-trace` pool labels; enforce max sample and historical-selected limits.
+4. Add unit tests around ordering, dedupe, and limit behavior before changing behavior elsewhere.
 5. Run the existing replay and display-tooling gates after the slice.
 
 **Verification:**

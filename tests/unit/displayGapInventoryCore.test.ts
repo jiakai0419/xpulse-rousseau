@@ -6,6 +6,7 @@ import {
   fallbackScore,
   inventoryRunFromPosts,
   markdownDisplayGapInventoryReport,
+  selectDisplayInventorySamples,
 } from "../../scripts/display-gap-inventory-core.mjs";
 
 function author(username: string) {
@@ -133,4 +134,130 @@ test("display gap inventory report counts evidence buckets, risks, and missing f
   assert.match(markdown, /Fresh capture: not requested/);
   assert.match(markdown, /\| quote_video_without_playable_variant \| 1 \|/);
   assert.match(markdown, /A \\| risky post/);
+});
+
+test("selectDisplayInventorySamples prefers fresh, then history selected, then history trace", () => {
+  const freshPost = post({ id: "fresh-post", text: "Fresh" });
+  const selectedPost = post({ id: "selected-post", text: "Selected" });
+  const tracePost = post({ id: "trace-post", text: "Trace" });
+  const freshRun = {
+    id: "fresh-run",
+    createdAt: "2026-06-12T00:00:00.000Z",
+    selectedPosts: [],
+    trace: {
+      inputPosts: [{ post: freshPost, fetchIndex: 0 }],
+    },
+  };
+  const historicalRuns = [
+    {
+      id: "history-run",
+      createdAt: "2026-06-11T00:00:00.000Z",
+      selectedPosts: [{ post: selectedPost, score: { total: 8, dimensions: [] } }],
+      trace: {
+        inputPosts: [
+          { post: selectedPost, fetchIndex: 0 },
+          { post: tracePost, fetchIndex: 1 },
+        ],
+      },
+    },
+  ];
+
+  const samples = selectDisplayInventorySamples({
+    freshRun,
+    historicalRuns,
+    maxSamples: 3,
+    historySampleLimit: 1,
+  });
+
+  assert.deepEqual(
+    samples.map((sample: any) => [sample.pool, sample.displayPost.id, sample.index]),
+    [
+      ["fresh", "fresh-post", 1],
+      ["history-selected", "selected-post", 2],
+      ["history-trace", "trace-post", 3],
+    ],
+  );
+});
+
+test("selectDisplayInventorySamples dedupes by reader-facing display post id", () => {
+  const source = post({ id: "source-post", text: "Source", author: author("source") });
+  const retweet = post({
+    id: "retweet-post",
+    text: "RT @source",
+    author: author("reposter"),
+    referencedPostType: "retweeted",
+    referencedPost: source,
+  });
+  const duplicateTrace = post({ id: "source-post", text: "Source duplicate", author: author("source") });
+  const selectedOnly = post({ id: "selected-only", text: "Selected only" });
+  const historicalRuns = [
+    {
+      id: "history-run",
+      createdAt: "2026-06-11T00:00:00.000Z",
+      selectedPosts: [
+        { post: retweet, score: { total: 8, dimensions: [] } },
+        { post: selectedOnly, score: { total: 7, dimensions: [] } },
+      ],
+      trace: {
+        inputPosts: [
+          { post: duplicateTrace, fetchIndex: 0 },
+          { post: selectedOnly, fetchIndex: 1 },
+        ],
+      },
+    },
+  ];
+
+  const samples = selectDisplayInventorySamples({
+    historicalRuns,
+    maxSamples: 10,
+    historySampleLimit: 10,
+  });
+
+  assert.deepEqual(
+    samples.map((sample: any) => [sample.pool, sample.timelinePost.id, sample.displayPost.id]),
+    [
+      ["history-selected", "retweet-post", "source-post"],
+      ["history-selected", "selected-only", "selected-only"],
+    ],
+  );
+});
+
+test("selectDisplayInventorySamples enforces max samples and selected sample limit", () => {
+  const selectedA = post({ id: "selected-a" });
+  const selectedB = post({ id: "selected-b" });
+  const traceA = post({ id: "trace-a" });
+  const traceB = post({ id: "trace-b" });
+  const historicalRuns = [
+    {
+      id: "history-run",
+      createdAt: "2026-06-11T00:00:00.000Z",
+      selectedPosts: [
+        { post: selectedA, score: { total: 8, dimensions: [] } },
+        { post: selectedB, score: { total: 7, dimensions: [] } },
+      ],
+      trace: {
+        inputPosts: [
+          { post: selectedA, fetchIndex: 0 },
+          { post: selectedB, fetchIndex: 1 },
+          { post: traceA, fetchIndex: 2 },
+          { post: traceB, fetchIndex: 3 },
+        ],
+      },
+    },
+  ];
+
+  const samples = selectDisplayInventorySamples({
+    historicalRuns,
+    maxSamples: 3,
+    historySampleLimit: 1,
+  });
+
+  assert.deepEqual(
+    samples.map((sample: any) => [sample.pool, sample.displayPost.id]),
+    [
+      ["history-selected", "selected-a"],
+      ["history-trace", "selected-b"],
+      ["history-trace", "trace-a"],
+    ],
+  );
 });
