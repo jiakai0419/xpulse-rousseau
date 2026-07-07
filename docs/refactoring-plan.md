@@ -174,14 +174,16 @@ The first useful code cleanup is therefore to extract stable evidence contracts 
 - Extracted Original capture core helpers and article matching rules.
 - Extracted Original evidence cache planning/import/validation core helpers.
 - Extracted local inventory run and report construction from `display-gap-inventory.ts`.
+- Extracted sample selection from `display-gap-inventory.ts`.
+- Extracted inventory sample enrichment from `display-gap-inventory.ts`: link preview enrichment, Original evidence X Article preview application, and derived bucket/risk refresh.
 - Added unit coverage for those extracted boundaries.
 
 **Current recommended slice:**
 
-1. Extract sample selection from `display-gap-inventory.ts`.
-2. Keep command orchestration, environment variables, optional fresh X fetching, preview enrichment, file writing, and browser execution in the command script.
-3. Keep the helper limited to pure sampling rules: fresh samples first, then historical selected posts, then historical trace input posts; dedupe by reader-facing display post id; preserve `fresh`, `history-selected`, and `history-trace` pool labels; enforce max sample and historical-selected limits.
-4. Add unit tests around ordering, dedupe, and limit behavior before changing behavior elsewhere.
+1. Extract fresh X inventory capture from `display-gap-inventory.ts`.
+2. Keep command orchestration, environment variables, output file writes, sample enrichment, and browser execution in the command script.
+3. Keep the helper limited to fresh evidence capture rules: resolve stored X OAuth tokens only when explicit env tokens are absent, call the X timeline client with the requested target/page limits, preserve raw snapshots and usage records, and build a no-OpenAI inventory run from fetched posts.
+4. Add unit tests with injected token and timeline-fetch functions before changing behavior elsewhere.
 5. Run the existing replay and display-tooling gates after the slice.
 
 **Verification:**
