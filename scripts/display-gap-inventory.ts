@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RefreshRun, TimelinePost, UsageRecord } from "../src/domain/tweet.ts";
 import { FileLinkPreviewCacheRepository } from "../src/services/linkPreview/cache.ts";
@@ -17,10 +17,12 @@ import {
   selectDisplayInventorySamples,
 } from "./display-gap-inventory-core.mjs";
 import {
-  enrichPostXArticlePreviewsFromEvidence,
   inventorySampleForJson,
-  refreshInventorySampleDerivedFields,
 } from "./display-inventory-samples.mjs";
+import {
+  enrichDisplayInventorySamples,
+  readOriginalEvidenceEntries,
+} from "./display-inventory-enrichment.mjs";
 import {
   collectLocalReaderEvidence,
   localReaderEvidenceSummary,
@@ -84,49 +86,20 @@ function readRunStore(filePath: string): { runs: RefreshRun[] } {
   }
 }
 
-function readOriginalEvidenceEntries(): any[] {
-  if (!enrichXArticlePreviews || !existsSync(originalEvidenceStorePath)) {
-    return [];
-  }
-
-  const raw = JSON.parse(readFileSync(originalEvidenceStorePath, "utf8"));
-  if (Array.isArray(raw)) {
-    return raw;
-  }
-
-  return Array.isArray(raw.entries) ? raw.entries : [];
-}
-
-function originalEvidenceByPostId(): Map<string, any> {
-  const byId = new Map<string, any>();
-  for (const entry of readOriginalEvidenceEntries()) {
-    const id = String(entry?.id ?? entry?.postId ?? "");
-    if (id) {
-      byId.set(id, entry);
-    }
-  }
-
-  return byId;
-}
-
 async function enrichInventorySamples(samples: InventorySample[]): Promise<void> {
-  if (!enrichLinkPreviews || !samples.length) {
-    return;
-  }
+  const originalEvidenceEntries = enrichLinkPreviews && samples.length
+    ? readOriginalEvidenceEntries(originalEvidenceStorePath, {
+        enabled: enrichXArticlePreviews,
+      })
+    : [];
 
-  await enrichSelectedPostLinkPreviews(samples.map((sample) => sample.timelinePost), {
-    cache: new FileLinkPreviewCacheRepository(linkPreviewCachePath),
+  await enrichDisplayInventorySamples(samples, {
+    enrichLinkPreviews,
+    enrichXArticlePreviews,
+    originalEvidenceEntries,
+    enrichSelectedPostLinkPreviews,
+    linkPreviewCache: new FileLinkPreviewCacheRepository(linkPreviewCachePath),
   });
-
-  const originalEvidence = originalEvidenceByPostId();
-  for (const sample of samples) {
-    const entry = originalEvidence.get(sample.displayPost.id);
-    sample.xArticlePreviewEvidenceApplied = entry ? enrichPostXArticlePreviewsFromEvidence(sample.timelinePost, entry) : 0;
-  }
-
-  for (const sample of samples) {
-    refreshInventorySampleDerivedFields(sample);
-  }
 }
 
 async function fetchFreshRun(): Promise<{ run?: RefreshRun; rawSnapshots: XRawTimelineSnapshot[]; usage: UsageRecord[] }> {
