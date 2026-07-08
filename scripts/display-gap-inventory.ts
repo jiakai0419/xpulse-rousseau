@@ -1,18 +1,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { RefreshRun, TimelinePost, UsageRecord } from "../src/domain/tweet.ts";
+import type { RefreshRun, TimelinePost } from "../src/domain/tweet.ts";
 import { FileLinkPreviewCacheRepository } from "../src/services/linkPreview/cache.ts";
 import { enrichSelectedPostLinkPreviews } from "../src/services/linkPreview/enrich.ts";
 import { loadDotEnv } from "../src/server/env.ts";
-import { fetchHomeTimeline } from "../src/services/x/client.ts";
-import { buildXOAuthConfig, getFreshStoredXTokens } from "../src/services/x/oauth.ts";
-import { FileXTokenStore } from "../src/services/x/tokenStore.ts";
-import type { XRawTimelineSnapshot } from "../src/services/x/rawSnapshotStore.ts";
 import { getHost } from "./env-utils.mjs";
 import {
   auditRunFromSamples,
   buildDisplayGapInventoryReport,
-  inventoryRunFromPosts,
   markdownDisplayGapInventoryReport,
   selectDisplayInventorySamples,
 } from "./display-gap-inventory-core.mjs";
@@ -27,6 +22,7 @@ import {
   collectLocalReaderEvidence,
   localReaderEvidenceSummary,
 } from "./display-local-reader-evidence.mjs";
+import { captureFreshDisplayInventoryRun } from "./display-inventory-fresh-capture.mjs";
 
 loadDotEnv();
 
@@ -102,46 +98,6 @@ async function enrichInventorySamples(samples: InventorySample[]): Promise<void>
   });
 }
 
-async function fetchFreshRun(): Promise<{ run?: RefreshRun; rawSnapshots: XRawTimelineSnapshot[]; usage: UsageRecord[] }> {
-  if (!includeFresh) {
-    return { rawSnapshots: [], usage: [] };
-  }
-
-  const rawSnapshots: XRawTimelineSnapshot[] = [];
-  const usage: UsageRecord[] = [];
-  const env = process.env;
-  let userId = env.X_USER_ID;
-  let accessToken = env.X_USER_ACCESS_TOKEN;
-
-  if (!userId || !accessToken) {
-    const tokens = await getFreshStoredXTokens(new FileXTokenStore(), buildXOAuthConfig(env));
-    userId = tokens?.user?.id;
-    accessToken = tokens?.accessToken;
-  }
-
-  if (!userId || !accessToken) {
-    throw new Error("Display inventory fresh capture needs connected X OAuth tokens or X_USER_ID/X_USER_ACCESS_TOKEN.");
-  }
-
-  const posts = await fetchHomeTimeline({
-    userId,
-    accessToken,
-    maxResults: 100,
-    targetResults: freshTarget,
-    maxPages: freshMaxPages,
-    onRawSnapshot: (snapshot) => {
-      rawSnapshots.push(snapshot);
-    },
-    onUsage: (record) => {
-      usage.push(record);
-    },
-  });
-  const createdAt = new Date().toISOString();
-  const run = inventoryRunFromPosts(posts, createdAt) as RefreshRun;
-  run.usage = usage;
-  return { run, rawSnapshots, usage };
-}
-
 async function main() {
   mkdirSync(outputDir, { recursive: true });
   const store = readRunStore(sourceStorePath);
@@ -149,7 +105,12 @@ async function main() {
     .filter((run) => run.source === "x" && run.trace?.inputPosts?.length)
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
     .slice(0, maxHistoryRuns);
-  const fresh = await fetchFreshRun();
+  const fresh = await captureFreshDisplayInventoryRun({
+    includeFresh,
+    env: process.env,
+    freshTarget,
+    freshMaxPages,
+  }) as { run?: RefreshRun; rawSnapshots: unknown[]; usage: unknown[] };
   const runs = fresh.run ? [fresh.run, ...historicalRuns] : historicalRuns;
 
   if (!runs.length) {

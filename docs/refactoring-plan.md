@@ -176,14 +176,15 @@ The first useful code cleanup is therefore to extract stable evidence contracts 
 - Extracted local inventory run and report construction from `display-gap-inventory.ts`.
 - Extracted sample selection from `display-gap-inventory.ts`.
 - Extracted inventory sample enrichment from `display-gap-inventory.ts`: link preview enrichment, Original evidence X Article preview application, and derived bucket/risk refresh.
+- Extracted fresh X inventory capture from `display-gap-inventory.ts`: token resolution, X timeline fetching, raw snapshot and usage collection, and no-OpenAI inventory run construction.
 - Added unit coverage for those extracted boundaries.
 
 **Current recommended slice:**
 
-1. Extract fresh X inventory capture from `display-gap-inventory.ts`.
-2. Keep command orchestration, environment variables, output file writes, sample enrichment, and browser execution in the command script.
-3. Keep the helper limited to fresh evidence capture rules: resolve stored X OAuth tokens only when explicit env tokens are absent, call the X timeline client with the requested target/page limits, preserve raw snapshots and usage records, and build a no-OpenAI inventory run from fetched posts.
-4. Add unit tests with injected token and timeline-fetch functions before changing behavior elsewhere.
+1. Extract saved run loading and historical run selection from `display-gap-inventory.ts`.
+2. Keep command orchestration, environment variables, fresh capture, sample enrichment, output file writes, and browser execution in the command script.
+3. Keep the helper limited to saved X-derived run rules: missing run stores produce an empty list, only live X runs with trace input posts are eligible, newest runs are preferred, and `DISPLAY_INVENTORY_HISTORY_RUNS` caps the selected history.
+4. Add unit tests around empty stores, filtering, sorting, and history limits before changing behavior elsewhere.
 5. Run the existing replay and display-tooling gates after the slice.
 
 **Verification:**
