@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RefreshRun, TimelinePost } from "../src/domain/tweet.ts";
 import { FileLinkPreviewCacheRepository } from "../src/services/linkPreview/cache.ts";
@@ -23,6 +23,7 @@ import {
   localReaderEvidenceSummary,
 } from "./display-local-reader-evidence.mjs";
 import { captureFreshDisplayInventoryRun } from "./display-inventory-fresh-capture.mjs";
+import { loadHistoricalDisplayInventoryRuns } from "./display-inventory-history-runs.mjs";
 
 loadDotEnv();
 
@@ -70,18 +71,6 @@ function positiveInt(value: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function readRunStore(filePath: string): { runs: RefreshRun[] } {
-  try {
-    return JSON.parse(readFileSync(filePath, "utf8")) as { runs: RefreshRun[] };
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      return { runs: [] };
-    }
-
-    throw error;
-  }
-}
-
 async function enrichInventorySamples(samples: InventorySample[]): Promise<void> {
   const originalEvidenceEntries = enrichLinkPreviews && samples.length
     ? readOriginalEvidenceEntries(originalEvidenceStorePath, {
@@ -100,11 +89,7 @@ async function enrichInventorySamples(samples: InventorySample[]): Promise<void>
 
 async function main() {
   mkdirSync(outputDir, { recursive: true });
-  const store = readRunStore(sourceStorePath);
-  const historicalRuns = (store.runs ?? [])
-    .filter((run) => run.source === "x" && run.trace?.inputPosts?.length)
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
-    .slice(0, maxHistoryRuns);
+  const historicalRuns = loadHistoricalDisplayInventoryRuns(sourceStorePath, maxHistoryRuns) as RefreshRun[];
   const fresh = await captureFreshDisplayInventoryRun({
     includeFresh,
     env: process.env,

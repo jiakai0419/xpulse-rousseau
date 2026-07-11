@@ -59,12 +59,12 @@ Do not continue broad refactoring by inertia. The next large cleanup phase shoul
 
 ## Phase 2 Entry Assessment
 
-As of 2026-06-21, the project is not in a "keep splitting whatever looks large" state. V1 behavior is stable enough to protect, Phase 1 has already completed the three highest-risk product boundaries, and the next cleanup should improve control and confidence rather than produce churn.
+As of 2026-07-11, the project is not in a "keep splitting whatever looks large" state. V1 behavior is stable enough to protect, Phase 1 has already completed the three highest-risk product boundaries, and the next cleanup should improve control and confidence rather than produce churn.
 
 Current baseline signals:
 
-- Local worktree is clean on the command/data governance branch.
-- Unit test suite has 181 passing tests.
+- Phase 1 closeout remains accepted and Phase 2 display-tooling work is isolated in focused PRs.
+- Unit test suite has 235 passing tests.
 - Local data inventory reports 20 saved runs, including 18 live X-derived runs, and 330 Original evidence entries.
 - X rendering sample coverage sees 558 trace input samples and 112 selected samples from real X-derived runs.
 - The command set now separates ordinary tests, replay rendering checks, Original evidence collection, screenshot review, fresh Pulse validation, and local data inventory.
@@ -102,7 +102,7 @@ These are candidate tracks, not automatic commitments. Pick one, complete it, ve
 
 ### 1. Display Evidence Tooling Boundary
 
-**Status:** In progress for Phase 2.
+**Status:** Completed for Phase 2.
 
 **Goal:** Make the X display-fidelity tooling easier to understand and maintain without changing Reader rendering behavior.
 
@@ -117,11 +117,11 @@ The display tools are successful when they help answer four owner-level question
 - If a post differs, do we know whether it is a missing data problem, a rendering rule problem, or a capture-quality problem?
 - Can a future refactor prove that it did not damage the accepted X-like Reader experience?
 
-**Current assessment:** The system now serves the larger goal reasonably well. It has real X-derived inventories, Original evidence caching, strict Oracle blocking for missing or low-quality evidence, screenshot-quality checks, screenshot review sheets, replay rendering regression, and fresh Pulse validation. However, the implementation still carries its history as temporary tooling. The evidence concepts are stronger than the code structure that hosts them.
+**Current assessment:** The system now serves the larger goal with explicit, tested stages. It has real X-derived inventories, Original evidence caching, strict Oracle blocking for missing or low-quality evidence, screenshot-quality checks, screenshot review sheets, replay rendering regression, and fresh Pulse validation. Focused Phase 2 slices made the inventory, capture, enrichment, comparison, and report boundaries testable without changing Reader behavior.
 
-**Phase 2 progress as of 2026-07-05:** The first Display Evidence Tooling cleanup slices are complete. Command/data governance, display inventory sample helpers, local Reader evidence capture, Original capture core helpers, Original article matching rules, and Original evidence cache core helpers have already been extracted and tested. Do not repeat those extractions. The remaining pressure is the orchestration layer around local inventory collection and report construction, especially `scripts/display-gap-inventory.ts`.
+**Phase 2 progress as of 2026-07-11:** The Display Evidence Tooling cleanup slices are complete. Command/data governance, display inventory sample helpers, local Reader evidence capture, Original capture core helpers, Original article matching rules, Original evidence cache rules, local inventory report construction, sample selection, enrichment, fresh X capture, and historical run selection are extracted and tested. Do not repeat those extractions.
 
-**Main design pressure:** `scripts/display-gap-inventory.ts` is the clearest overloaded boundary. It still handles environment/configuration, sample selection, optional fresh X fetching, preview enrichment, local inventory-run construction, local evidence capture orchestration, and report writing. Some high-risk pieces are already extracted, so the next cleanup should shrink the remaining orchestration script around explicit inventory/report helpers rather than moving browser capture code again.
+**Resolved design pressure:** `scripts/display-gap-inventory.ts` is now the command orchestrator: it reads configuration, calls named historical/fresh/sample/enrichment/capture/report stages, and writes command outputs. Historical evidence eligibility is no longer hidden in that script. The remaining Chrome and Playwright-heavy files are execution adapters; their size alone is not a reason for another refactor.
 
 **Refactor hypothesis:** Effective Phase 2 work should make the evidence system's domain language explicit before moving code for its own sake. The useful abstractions are not "misc helpers"; they are:
 
@@ -135,7 +135,7 @@ The display tools are successful when they help answer four owner-level question
 
 The first useful code cleanup is therefore to extract stable evidence contracts and stage helpers, then shrink the large orchestration scripts around those contracts. A shallow helper extraction that merely reduces line count without clarifying these stages is not meaningful refactoring.
 
-**Current pressure points:**
+**Residual constraints, not active refactor targets:**
 
 - The display scripts are now the densest part of the project.
 - Some script names are clear, but the internal flow is still mentally expensive.
@@ -177,15 +177,15 @@ The first useful code cleanup is therefore to extract stable evidence contracts 
 - Extracted sample selection from `display-gap-inventory.ts`.
 - Extracted inventory sample enrichment from `display-gap-inventory.ts`: link preview enrichment, Original evidence X Article preview application, and derived bucket/risk refresh.
 - Extracted fresh X inventory capture from `display-gap-inventory.ts`: token resolution, X timeline fetching, raw snapshot and usage collection, and no-OpenAI inventory run construction.
+- Extracted saved run loading and historical run selection from `display-gap-inventory.ts`: missing stores are empty, only live X runs with trace input posts are eligible, newest runs are preferred, and the configured history limit is enforced.
 - Added unit coverage for those extracted boundaries.
 
-**Current recommended slice:**
+**Track closeout:**
 
-1. Extract saved run loading and historical run selection from `display-gap-inventory.ts`.
-2. Keep command orchestration, environment variables, fresh capture, sample enrichment, output file writes, and browser execution in the command script.
-3. Keep the helper limited to saved X-derived run rules: missing run stores produce an empty list, only live X runs with trace input posts are eligible, newest runs are preferred, and `DISPLAY_INVENTORY_HISTORY_RUNS` caps the selected history.
-4. Add unit tests around empty stores, filtering, sorting, and history limits before changing behavior elsewhere.
-5. Run the existing replay and display-tooling gates after the slice.
+- `x-display:collect-local-renderings` was verified against the real saved X-derived run store after the final extraction.
+- The display evidence command names, output paths, Reader behavior, evidence formats, and real-data policy remain unchanged.
+- No further Display Evidence Tooling extraction is planned. A future change must start from a new concrete problem, not from file size or refactoring inertia.
+- The Local Data And Evidence Stewardship and App Coordination tracks remain optional candidates. Neither is an automatic next step; each requires a separate owner decision.
 
 **Verification:**
 

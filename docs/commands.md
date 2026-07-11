@@ -64,6 +64,10 @@ Most scripts should be reached through the command names above. A few files in `
 | `scripts/data-inventory-core.mjs` | Shared data inventory classifiers used by `data:inventory` and unit tests. |
 | `scripts/display-evidence-assets.mjs` | Shared Original evidence screenshot asset normalization: copies imported screenshots into durable `.data/display-original-evidence` storage and repairs old missing paths only when one matching durable screenshot exists. |
 | `scripts/display-evidence-core.mjs` | Shared display evidence contracts for local screenshots/facts, Original X evidence, contentful probes, and evidence coverage. |
+| `scripts/display-gap-inventory-core.mjs` | Shared local inventory run, sample-selection, audit-run, and report construction rules used by `x-display:collect-local-renderings` and unit tests. |
+| `scripts/display-inventory-enrichment.mjs` | Shared inventory enrichment stage for cached link previews, Original X Article evidence, and refreshed bucket/risk/missing-data fields. |
+| `scripts/display-inventory-fresh-capture.mjs` | Shared optional fresh X capture stage for token resolution, timeline fetching, raw snapshots, usage, and no-OpenAI inventory runs. |
+| `scripts/display-inventory-history-runs.mjs` | Shared historical evidence selection: loads saved runs, keeps newest live X runs with trace input posts, and enforces the configured history limit. |
 | `scripts/display-inventory-samples.mjs` | Shared display inventory sample contract: derives buckets, risks, missing-data signals, X Article preview evidence enrichment, and report JSON fields for local rendering inventories. |
 | `scripts/display-local-reader-evidence.mjs` | Shared local Reader evidence capture: starts a replay server, opens the Reader in Playwright, captures local screenshots, local DOM facts, and screenshot probes for inventory samples. |
 | `scripts/display-oracle-core.mjs` | Shared Local-vs-Original rendering comparison logic used by display commands and tests. |
