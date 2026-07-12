@@ -1,6 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import type { RefreshRun, TimelinePost } from "../../domain/tweet.ts";
+import { readPrivateJsonFile, writePrivateJsonFile } from "../storage/privateJsonFile.ts";
 
 export type TimelineCursor = {
   latestPostId?: string;
@@ -37,16 +36,7 @@ export class FileTimelineCursorRepository implements TimelineCursorRepository {
   }
 
   async get(): Promise<TimelineCursor> {
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as TimelineCursor;
-    } catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-        return {};
-      }
-
-      throw error;
-    }
+    return readPrivateJsonFile(this.filePath, () => ({}));
   }
 
   async updateFromRun(run: RefreshRun): Promise<void> {
@@ -56,11 +46,18 @@ export class FileTimelineCursorRepository implements TimelineCursorRepository {
       return;
     }
 
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, JSON.stringify({
+    await writePrivateJsonFile(this.filePath, {
       latestPostId,
       updatedAt: run.createdAt,
       runId: run.id,
-    }, null, 2), "utf8");
+    });
+  }
+
+  async checkpoint(): Promise<TimelineCursor> {
+    return this.get();
+  }
+
+  async restore(checkpoint: TimelineCursor): Promise<void> {
+    await writePrivateJsonFile(this.filePath, checkpoint);
   }
 }

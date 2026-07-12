@@ -33,7 +33,8 @@ function usageProgressDetail(usage: UsageRecord): string {
     return `${usage.model}: input ${usage.inputTokens}, output ${usage.outputTokens}, total ${usage.totalTokens}`;
   }
 
-  return `${usage.method ?? "GET"} ${usage.endpoint ?? "X API"} · ${usage.itemCount} items`;
+  const failed = usage.failedRequestCount ? ` · ${usage.failedRequestCount} failed` : "";
+  return `${usage.method ?? "GET"} ${usage.endpoint ?? "X API"} · ${usage.itemCount} items · ${usage.requestCount ?? 1} requests${failed}`;
 }
 
 export function createRefreshProgressReporter(options: RefreshProgressReporterOptions = {}): RefreshProgressReporter {

@@ -71,9 +71,27 @@ test("renderPostLinks renders preview images as media preview cards", () => {
   );
 
   assert.match(html, /link-card-media-preview/);
-  assert.match(html, /src="https:\/\/img\.example\/large\.jpg"/);
+  assert.match(html, /src="\/api\/link-preview\/image\?url=https%3A%2F%2Fimg\.example%2Flarge\.jpg"/);
+  assert.doesNotMatch(html, /src="https:\/\/img\.example/);
   assert.match(html, /Preview title/);
   assert.match(html, /From example\.com/);
+});
+
+test("renderPostLinks never puts legacy untrusted preview image URLs directly in src", () => {
+  const html = renderPostLinks(
+    post({
+      links: [{
+        url: "https://public.example/story",
+        preview: {
+          title: "Public story",
+          images: [{ url: "http://127.0.0.1:8080/private.png", width: 100, height: 100 }],
+        },
+      }],
+    }),
+  );
+
+  assert.match(html, /src="\/api\/link-preview\/image\?url=http%3A%2F%2F127\.0\.0\.1%3A8080%2Fprivate\.png"/);
+  assert.doesNotMatch(html, /src="http:\/\/127\.0\.0\.1/);
 });
 
 test("renderPostLinks renders only one primary external preview card", () => {

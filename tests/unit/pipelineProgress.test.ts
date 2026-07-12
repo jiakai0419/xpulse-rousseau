@@ -116,7 +116,7 @@ test("createRefreshProgressReporter records usage and maps usage lines to progre
       {
         stage: "loading",
         label: "X timeline",
-        detail: "GET /2/users/user-id/timelines/reverse_chronological · 100 items",
+        detail: "GET /2/users/user-id/timelines/reverse_chronological · 100 items · 1 requests",
         model: undefined,
         usageCount: 3,
         updatedAt: "2026-06-03T09:30:02.000Z",

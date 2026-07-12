@@ -38,6 +38,8 @@ TIMELINE_SOURCE=replay
 
 `X_CLIENT_SECRET` is optional for public-client app types, but should be provided for a Web App/confidential-client configuration.
 
+Credential priority does not change merely because time passes while the Reader is open. A complete stored OAuth identity takes precedence when it has no expiry or has the refresh token and `X_CLIENT_ID` needed to maintain the same identity. Online refreshes that OAuth token when needed and fails visibly instead of silently falling back to a different manual account. If an expiring OAuth identity cannot be refreshed and complete manual `X_USER_ID` / `X_USER_ACCESS_TOKEN` credentials exist, both status and Online choose manual from the start—even before the OAuth token reaches its refresh window. The status API always reports the identity selected by this stable rule.
+
 ## Flow In This App
 
 1. Open the local app.

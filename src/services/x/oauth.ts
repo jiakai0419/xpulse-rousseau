@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { Author } from "../../domain/tweet.ts";
+import { DEFAULT_X_REQUEST_TIMEOUT_MS, fetchTextWithTimeout, requestTimeoutMs } from "../http/fetchWithTimeout.ts";
 import { fetchAuthenticatedUser } from "./client.ts";
 import type { XStoredTokens, XTokenStore } from "./tokenStore.ts";
 
@@ -10,6 +11,7 @@ export type XOAuthConfig = {
   scopes: string[];
   authorizeUrl: string;
   tokenUrl: string;
+  requestTimeoutMs: number;
 };
 
 export type XOAuthStart = {
@@ -48,6 +50,7 @@ export function buildXOAuthConfig(env: Record<string, string | undefined>, origi
     scopes,
     authorizeUrl: env.X_AUTHORIZE_URL ?? DEFAULT_AUTHORIZE_URL,
     tokenUrl: env.X_TOKEN_URL ?? DEFAULT_TOKEN_URL,
+    requestTimeoutMs: requestTimeoutMs(env.X_REQUEST_TIMEOUT_MS, DEFAULT_X_REQUEST_TIMEOUT_MS),
   };
 }
 
@@ -132,17 +135,21 @@ async function postTokenForm(config: XOAuthConfig, form: URLSearchParams): Promi
     form.set("client_id", config.clientId);
   }
 
-  const response = await fetch(config.tokenUrl, {
-    method: "POST",
-    headers: createTokenHeaders(config),
-    body: form,
-  });
+  const { response, text: responseText } = await fetchTextWithTimeout(
+    config.tokenUrl,
+    {
+      method: "POST",
+      headers: createTokenHeaders(config),
+      body: form,
+    },
+    { label: "X OAuth token request", timeoutMs: config.requestTimeoutMs },
+  );
 
   if (!response.ok) {
-    throw new Error(`X OAuth token request failed with ${response.status}: ${await response.text()}`);
+    throw new Error(`X OAuth token request failed with ${response.status}: ${responseText}`);
   }
 
-  return await response.json() as XTokenResponse;
+  return JSON.parse(responseText) as XTokenResponse;
 }
 
 export async function exchangeAuthorizationCode(config: XOAuthConfig, code: string, codeVerifier: string, redirectUri: string): Promise<XStoredTokens> {
@@ -154,7 +161,7 @@ export async function exchangeAuthorizationCode(config: XOAuthConfig, code: stri
   });
 
   const tokenResponse = await postTokenForm(config, form);
-  const user = await fetchAuthenticatedUser(tokenResponse.access_token);
+  const user = await fetchAuthenticatedUser(tokenResponse.access_token, config.requestTimeoutMs);
 
   return tokensFromResponse(tokenResponse, user);
 }
@@ -169,7 +176,7 @@ export async function refreshXTokens(config: XOAuthConfig, refreshToken: string,
   let user = previousUser;
 
   try {
-    user = await fetchAuthenticatedUser(tokenResponse.access_token);
+    user = await fetchAuthenticatedUser(tokenResponse.access_token, config.requestTimeoutMs);
   } catch {
     user = previousUser;
   }

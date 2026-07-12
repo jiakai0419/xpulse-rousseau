@@ -1,10 +1,22 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { getHost, spawnServer, waitForHealth } from "./env-utils.mjs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import {
+  createServerInstanceId,
+  findAvailablePort,
+  getHost,
+  isolatedServerStateEnv,
+  spawnServer,
+  waitForHealth,
+} from "./env-utils.mjs";
 
 const host = getHost();
-const port = Number(process.env.SMOKE_PORT || 3100);
-const runStorePath = ".data/smoke-runs.json";
+const port = process.env.SMOKE_PORT ? Number(process.env.SMOKE_PORT) : await findAvailablePort(host);
+const temporaryDirectory = mkdtempSync(join(tmpdir(), "xpulse-smoke-"));
+const runStorePath = join(temporaryDirectory, "runs.json");
+const instanceId = createServerInstanceId();
+const requestTimeoutMs = 5_000;
+const jobTimeoutMs = 30_000;
 
 function seedReplayStore(filePath) {
   const sourceStore = JSON.parse(readFileSync(".data/runs.json", "utf8"));
@@ -15,7 +27,8 @@ function seedReplayStore(filePath) {
   }
 
   mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(filePath, JSON.stringify({ runs: [sourceRun] }, null, 2), "utf8");
+  writeFileSync(filePath, JSON.stringify({ runs: [sourceRun] }, null, 2), { encoding: "utf8", mode: 0o600 });
+  chmodSync(filePath, 0o600);
   return sourceRun;
 }
 
@@ -23,11 +36,16 @@ const sourceRun = seedReplayStore(runStorePath);
 const child = spawnServer({
   host,
   port,
+  instanceId,
   stdio: ["ignore", "pipe", "pipe"],
   extraEnv: {
-    RUN_STORE_PATH: runStorePath,
+    ...isolatedServerStateEnv(temporaryDirectory, { runStorePath }),
     TIMELINE_SOURCE: "replay",
     OPENAI_API_KEY: "",
+    X_USER_ID: "",
+    X_USER_ACCESS_TOKEN: "",
+    X_CLIENT_ID: "",
+    X_CLIENT_SECRET: "",
   },
 });
 const childExit = new Promise((resolve) => {
@@ -46,7 +64,7 @@ child.stderr.on("data", (chunk) => {
 
 try {
   await Promise.race([
-    waitForHealth({ host, port, timeoutMs: 5000 }),
+    waitForHealth({ host, port, timeoutMs: 5000, expectedInstanceId: instanceId }),
     childExit.then((exit) => {
       throw new Error(`Server exited before smoke health check passed (code ${exit.code ?? "null"}, signal ${exit.signal ?? "null"}).`);
     }),
@@ -54,6 +72,7 @@ try {
 
   const refresh = await fetch(`http://${host}:${port}/api/runs/jobs`, {
     method: "POST",
+    signal: AbortSignal.timeout(requestTimeoutMs),
     headers: {
       "Content-Type": "application/json",
     },
@@ -66,10 +85,17 @@ try {
 
   let payload = await refresh.json();
   let job = payload.job;
+  const jobDeadline = Date.now() + jobTimeoutMs;
 
   while (job.status === "running") {
+    if (Date.now() >= jobDeadline) {
+      throw new Error(`Timed out after ${jobTimeoutMs}ms waiting for replay job ${job.id}.`);
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 100));
-    const jobResponse = await fetch(`http://${host}:${port}/api/runs/jobs/${encodeURIComponent(job.id)}`);
+    const jobResponse = await fetch(`http://${host}:${port}/api/runs/jobs/${encodeURIComponent(job.id)}`, {
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    });
     payload = await jobResponse.json();
 
     if (!jobResponse.ok) {
@@ -84,7 +110,7 @@ try {
   }
 
   const run = job.run;
-  const page = await fetch(`http://${host}:${port}/`);
+  const page = await fetch(`http://${host}:${port}/`, { signal: AbortSignal.timeout(requestTimeoutMs) });
 
   if (!page.ok) {
     throw new Error(`Page request failed: ${page.status}`);
@@ -113,5 +139,12 @@ try {
   process.exitCode = 1;
 } finally {
   child.kill("SIGTERM");
-  rmSync(runStorePath, { force: true });
+  await Promise.race([
+    childExit,
+    new Promise((resolve) => setTimeout(resolve, 5_000)),
+  ]);
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGKILL");
+  }
+  rmSync(temporaryDirectory, { recursive: true, force: true });
 }

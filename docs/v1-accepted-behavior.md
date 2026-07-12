@@ -7,7 +7,7 @@ This document freezes the V1 behavior that refactors should preserve unless the 
 - The primary action is `Pulse`.
 - The default source after page load is Online when X is connected.
 - Online Pulse calls X and OpenAI. If either provider fails, the action fails visibly.
-- Offline Pulse replays the latest saved live X-derived run. It does not call X or OpenAI and does not mutate Seen Ledger, Timeline Cursor, Raw X Snapshots, or OpenAI Cache.
+- Offline Pulse replays the latest saved live X-derived run. It does not call the X API or OpenAI and does not mutate Seen Ledger, Timeline Cursor, Raw X Snapshots, or OpenAI Cache. Saved media can still load from X CDNs.
 - Pulse jobs are recoverable while the server process is alive. A repeated Pulse click during a running job reattaches to that job instead of starting another costly run.
 
 ## Selection

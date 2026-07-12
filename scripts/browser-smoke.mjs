@@ -1,14 +1,27 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { chromium } from "playwright";
 import { linkTreatment, normalizedPostLinks } from "../public/reader/linkRules.js";
-import { getHost, spawnServer, waitForHealth } from "./env-utils.mjs";
+import {
+  createServerInstanceId,
+  findAvailablePort,
+  getHost,
+  isolatedServerStateEnv,
+  spawnServer,
+  waitForHealth,
+} from "./env-utils.mjs";
 
 const host = getHost();
-const port = Number(process.env.BROWSER_SMOKE_PORT || 3200);
-const screenshotPath = process.env.BROWSER_SMOKE_SCREENSHOT || ".data/ui-smoke.png";
+const port = process.env.BROWSER_SMOKE_PORT ? Number(process.env.BROWSER_SMOKE_PORT) : await findAvailablePort(host);
+const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+const screenshotPath = process.env.BROWSER_SMOKE_SCREENSHOT || `.data/ui-smoke/ui-smoke-${timestamp}-${process.pid}.png`;
 const sourceStorePath = process.env.BROWSER_SMOKE_RUN_STORE || ".data/runs.json";
-const runStorePath = `.data/browser-smoke-runs-${Date.now()}-${process.pid}.json`;
+const temporaryDirectory = mkdtempSync(join(tmpdir(), "xpulse-browser-smoke-"));
+const runStorePath = join(temporaryDirectory, "runs.json");
+const instanceId = createServerInstanceId();
+const requireRemoteMedia = process.env.BROWSER_SMOKE_REQUIRE_REMOTE_MEDIA === "1";
+const overallTimeoutMs = Number(process.env.BROWSER_SMOKE_TIMEOUT_MS || 120_000);
 const mediaLoadTimeoutMs = 25_000;
 const viewerImageLoadTimeoutMs = 8_000;
 
@@ -29,7 +42,8 @@ function seedReplayStore(filePath) {
   }
 
   mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(filePath, JSON.stringify({ runs: [sourceRun] }, null, 2), "utf8");
+  writeFileSync(filePath, JSON.stringify({ runs: [sourceRun] }, null, 2), { encoding: "utf8", mode: 0o600 });
+  chmodSync(filePath, 0o600);
   return sourceRun;
 }
 
@@ -123,11 +137,16 @@ const expectedLinkCards = sourceRun.selectedPosts.reduce((count, item) => {
 const child = spawnServer({
   host,
   port,
+  instanceId,
   stdio: ["ignore", "pipe", "pipe"],
   extraEnv: {
-    RUN_STORE_PATH: runStorePath,
+    ...isolatedServerStateEnv(temporaryDirectory, { runStorePath }),
     TIMELINE_SOURCE: "replay",
     OPENAI_API_KEY: "",
+    X_USER_ID: "",
+    X_USER_ACCESS_TOKEN: "",
+    X_CLIENT_ID: "",
+    X_CLIENT_SECRET: "",
   },
 });
 
@@ -146,10 +165,54 @@ const childExit = new Promise((resolve) => {
 });
 
 let browser;
+let watchdog;
+let cleanupPromise;
+
+function cleanupResources() {
+  if (cleanupPromise) {
+    return cleanupPromise;
+  }
+
+  cleanupPromise = (async () => {
+    if (watchdog) {
+      clearTimeout(watchdog);
+    }
+
+    if (browser) {
+      await Promise.race([
+        browser.close().catch(() => undefined),
+        new Promise((resolve) => setTimeout(resolve, 5_000)),
+      ]);
+    }
+
+    child.kill("SIGTERM");
+    await Promise.race([
+      childExit,
+      new Promise((resolve) => setTimeout(resolve, 5_000)),
+    ]);
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  })();
+
+  return cleanupPromise;
+}
+
+function terminateAfterCleanup(exitCode, message) {
+  console.error(message);
+  void cleanupResources().finally(() => process.exit(exitCode));
+}
+
+watchdog = setTimeout(() => {
+  terminateAfterCleanup(1, `UI smoke timed out after ${overallTimeoutMs}ms.`);
+}, overallTimeoutMs);
+process.once("SIGTERM", () => terminateAfterCleanup(143, "UI smoke received SIGTERM; cleaning up."));
+process.once("SIGINT", () => terminateAfterCleanup(130, "UI smoke received SIGINT; cleaning up."));
 
 try {
   await Promise.race([
-    waitForHealth({ host, port, timeoutMs: 5000 }),
+    waitForHealth({ host, port, timeoutMs: 5000, expectedInstanceId: instanceId }),
     childExit.then((exit) => {
       throw new Error(`Server exited before UI smoke health check passed (code ${exit.code ?? "null"}, signal ${exit.signal ?? "null"}).`);
     }),
@@ -157,6 +220,24 @@ try {
 
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+
+  if (!requireRemoteMedia) {
+    await page.route("**/*", async (route) => {
+      const target = new URL(route.request().url());
+      if (target.hostname === host || target.hostname === "localhost") {
+        if (target.pathname === "/api/media/proxy") {
+          await route.fulfill({ status: 204, contentType: "video/mp4", body: "" });
+        } else if (target.pathname === "/api/link-preview/image") {
+          await route.fulfill({ status: 204, contentType: "image/png", body: "" });
+        } else {
+          await route.continue();
+        }
+      } else {
+        await route.abort("blockedbyclient");
+      }
+    });
+  }
+
   await page.goto(`http://${host}:${port}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
 
   const sourceLabel = await page.locator("#source-toggle-label").textContent({ timeout: 10_000 });
@@ -195,7 +276,7 @@ try {
   const signalSummaries = await page.locator(".signal-summary").count();
   const signalTracks = await page.locator(".signal-summary-rail, .signal-track").count();
   const mediaItems = await page.locator(".media-item").count();
-  const mediaButtons = await page.locator(".media-button").count();
+  const mediaButtons = await page.locator(".media-viewer-trigger").count();
   const quoteCards = await page.locator(".quote-card").count();
   const linkCards = await page.locator(".link-card").count();
   const badOriginalLinks = await page.locator(".original-link").evaluateAll((links) =>
@@ -271,24 +352,42 @@ try {
   if (expectedInlineVideos > 0) {
     const firstVideo = page.locator(".media-item video").first();
     await firstVideo.scrollIntoViewIfNeeded();
-    try {
-      await page.waitForFunction(
-        () => {
-          const video = document.querySelector(".media-item video");
+    await page.waitForFunction(
+      () => Boolean(document.querySelector(".media-item video")?.getAttribute("src")),
+      undefined,
+      { timeout: 5_000 },
+    );
+    if (requireRemoteMedia) {
+      try {
+        await page.waitForFunction(
+          () => {
+            const video = document.querySelector(".media-item video");
 
-          return Boolean(video && (video.currentSrc || video.src) && !video.error);
-        },
-        undefined,
-        { timeout: mediaLoadTimeoutMs },
-      );
-    } catch (error) {
-      throw new Error(`Expected inline video media to expose a loadable source within ${mediaLoadTimeoutMs}ms: ${error instanceof Error ? error.message : error}`);
+            return Boolean(video && (video.currentSrc || video.src) && !video.error);
+          },
+          undefined,
+          { timeout: mediaLoadTimeoutMs },
+        );
+      } catch (error) {
+        throw new Error(`Expected inline video media to expose a loadable source within ${mediaLoadTimeoutMs}ms: ${error instanceof Error ? error.message : error}`);
+      }
     }
 
-    const videoState = await firstVideo.evaluate(async (video) => {
+    const videoState = await firstVideo.evaluate(async (video, shouldPlay) => {
       let playStatus = "not_attempted";
 
       try {
+        if (!shouldPlay) {
+          return {
+            src: video.currentSrc || video.src,
+            readyState: video.readyState,
+            paused: video.paused,
+            currentTime: video.currentTime,
+            errorCode: video.error?.code ?? null,
+            playStatus,
+          };
+        }
+
         const playPromise = video.play();
 
         if (playPromise) {
@@ -310,7 +409,7 @@ try {
         errorCode: video.error?.code ?? null,
         playStatus,
       };
-    });
+    }, requireRemoteMedia);
 
     if (!videoState.src.includes("/api/media/proxy?")) {
       throw new Error(`Expected inline X video to use local media proxy, found ${videoState.src}.`);
@@ -319,7 +418,7 @@ try {
     const playStatus = String(videoState.playStatus);
     const unsupportedPlayback = playStatus.startsWith("rejected:") && !playStatus.includes("AbortError");
 
-    if (videoState.errorCode || unsupportedPlayback) {
+    if (requireRemoteMedia && (videoState.errorCode || unsupportedPlayback)) {
       throw new Error(`Expected inline X video to be playable or still loading, found ${JSON.stringify(videoState)}.`);
     }
 
@@ -447,20 +546,29 @@ try {
     await page.waitForFunction(() => document.querySelector("#media-viewer")?.hidden === true, undefined, { timeout: 10_000 });
   }
 
-  const videoButtons = await page.locator('.media-button[data-media-type="video"], .media-button[data-media-type="animated_gif"]').count();
+  const videoButtons = await page.locator('.media-video-expand[data-media-type="video"], .media-video-expand[data-media-type="animated_gif"]').count();
   if (videoButtons > 0) {
-    const inlineVideoState = await page.locator(".media-button video").first().evaluate((video) => ({
+    const inlineVideoState = await page.locator(".media-video-shell video").first().evaluate((video) => ({
       autoplay: video.autoplay,
       muted: video.muted,
       playsInline: video.playsInline,
+      controls: video.controls,
+      preload: video.preload,
       src: video.getAttribute("src") ?? "",
     }));
 
-    if (!inlineVideoState.autoplay || !inlineVideoState.muted || !inlineVideoState.playsInline || !inlineVideoState.src) {
-      throw new Error(`Expected timeline video media to autoplay muted inline, found ${JSON.stringify(inlineVideoState)}.`);
+    if (
+      inlineVideoState.autoplay ||
+      !inlineVideoState.muted ||
+      !inlineVideoState.playsInline ||
+      !inlineVideoState.controls ||
+      inlineVideoState.preload !== "none" ||
+      !inlineVideoState.src
+    ) {
+      throw new Error(`Expected timeline video media to use observer-driven playback with direct controls, found ${JSON.stringify(inlineVideoState)}.`);
     }
 
-    await page.locator('.media-button[data-media-type="video"], .media-button[data-media-type="animated_gif"]').first().click();
+    await page.locator('.media-video-expand[data-media-type="video"], .media-video-expand[data-media-type="animated_gif"]').first().click();
     await page.waitForSelector("#media-viewer:not([hidden])", { timeout: 10_000 });
 
     const videoViewerState = await page.locator("#media-viewer").evaluate((viewer) => {
@@ -569,9 +677,5 @@ try {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 } finally {
-  if (browser) {
-    await browser.close();
-  }
-  child.kill("SIGTERM");
-  rmSync(runStorePath, { force: true });
+  await cleanupResources();
 }

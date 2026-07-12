@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  activeXSourceUser,
   avatarMarkup,
   nextSelectedSource,
   sourceToggleDisplay,
@@ -106,13 +107,32 @@ test("xAuthStatusDisplay maps auth states to sidebar copy and source state", () 
 
   assert.deepEqual(
     xAuthStatusDisplay({
-      configured: true,
+      configured: false,
       manualCredentials: true,
       xReady: true,
     }),
     {
       avatarUser: undefined,
       statusText: "Manual X token",
+      connectHidden: true,
+      connectDisabled: true,
+      selectedSource: "x",
+    },
+  );
+
+  assert.deepEqual(
+    xAuthStatusDisplay({
+      configured: true,
+      authenticated: true,
+      manualCredentials: true,
+      xReady: true,
+      user,
+      activeSource: "oauth",
+      activeSourceIdentity: { source: "oauth", user },
+    }),
+    {
+      avatarUser: user,
+      statusText: "@ada",
       connectHidden: true,
       connectDisabled: true,
       selectedSource: "x",
@@ -126,4 +146,11 @@ test("xAuthStatusDisplay maps auth states to sidebar copy and source state", () 
     connectDisabled: false,
     selectedSource: "replay",
   });
+});
+
+test("activeXSourceUser accepts explicit active-source identity shapes only", () => {
+  assert.equal(activeXSourceUser({ activeSource: "manual" }), undefined);
+  assert.equal(activeXSourceUser({ activeSourceIdentity: { source: "manual", userId: "123" } }), undefined);
+  assert.deepEqual(activeXSourceUser({ activeSourceIdentity: { source: "oauth", user } }), user);
+  assert.deepEqual(activeXSourceUser({ activeSourceIdentity: user }), user);
 });

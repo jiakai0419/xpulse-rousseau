@@ -180,3 +180,44 @@ test("enrichMissingReferencedPosts recursively looks up and attaches missing ref
     globalThis.fetch = originalFetch;
   }
 });
+
+test("enrichMissingReferencedPosts emits failed lookup usage before propagating the error", async () => {
+  const originalFetch = globalThis.fetch;
+  const usage: UsageRecord[] = [];
+  const posts: TimelinePost[] = [
+    {
+      id: "timeline-failed-lookup",
+      text: "Quote lookup should fail visibly.",
+      author: { id: "author-1", name: "Author", username: "author" },
+      createdAt: "2026-06-05T00:00:00.000Z",
+      url: "https://x.com/author/status/timeline-failed-lookup",
+      metrics: {},
+      referencedPostType: "quoted",
+      referencedPostId: "missing-quote",
+      seenBy: ["author"],
+    },
+  ];
+
+  globalThis.fetch = async () => new Response("lookup unavailable", { status: 503 });
+
+  try {
+    await assert.rejects(
+      () =>
+        enrichMissingReferencedPosts(
+          {
+            accessToken: "token-1",
+            onUsage: (record) => usage.push(record),
+          },
+          posts,
+        ),
+      /503/,
+    );
+
+    assert.equal(usage.length, 1);
+    assert.equal(usage[0].requestCount, 1);
+    assert.equal(usage[0].failedRequestCount, 1);
+    assert.deepEqual(usage[0].itemIds, ["missing-quote"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

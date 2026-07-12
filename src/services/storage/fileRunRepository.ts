@@ -1,6 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import type { RefreshRun, TimelineSource } from "../../domain/tweet.ts";
+import { readPrivateJsonFile, updatePrivateJsonFile, writePrivateJsonFile } from "./privateJsonFile.ts";
 
 const MAX_STORED_RUNS = 20;
 
@@ -12,7 +11,7 @@ export type RunRepository = {
   update(run: RefreshRun): Promise<void>;
 };
 
-type RunStore = {
+export type RunRepositoryCheckpoint = {
   runs: RefreshRun[];
 };
 
@@ -24,10 +23,9 @@ export class FileRunRepository implements RunRepository {
   }
 
   async save(run: RefreshRun): Promise<void> {
-    const store = await this.readStore();
-    store.runs = this.pruneRuns([run, ...store.runs]);
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, JSON.stringify(store, null, 2), "utf8");
+    await updatePrivateJsonFile(this.filePath, () => ({ runs: [] }), (store: RunRepositoryCheckpoint) => ({
+      runs: this.pruneRuns([run, ...store.runs]),
+    }));
   }
 
   async latest(): Promise<RefreshRun | undefined> {
@@ -46,18 +44,25 @@ export class FileRunRepository implements RunRepository {
   }
 
   async update(run: RefreshRun): Promise<void> {
-    const store = await this.readStore();
-    const index = store.runs.findIndex((item) => item.id === run.id);
+    await updatePrivateJsonFile(this.filePath, () => ({ runs: [] }), (store: RunRepositoryCheckpoint) => {
+      const runs = [...store.runs];
+      const index = runs.findIndex((item) => item.id === run.id);
 
-    if (index === -1) {
-      store.runs = this.pruneRuns([run, ...store.runs]);
-    } else {
-      store.runs[index] = run;
-      store.runs = this.pruneRuns(store.runs);
-    }
+      if (index === -1) {
+        return { runs: this.pruneRuns([run, ...runs]) };
+      }
 
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, JSON.stringify(store, null, 2), "utf8");
+      runs[index] = run;
+      return { runs: this.pruneRuns(runs) };
+    });
+  }
+
+  async checkpoint(): Promise<RunRepositoryCheckpoint> {
+    return this.readStore();
+  }
+
+  async restore(checkpoint: RunRepositoryCheckpoint): Promise<void> {
+    await writePrivateJsonFile(this.filePath, checkpoint);
   }
 
   private pruneRuns(runs: RefreshRun[]): RefreshRun[] {
@@ -83,16 +88,7 @@ export class FileRunRepository implements RunRepository {
     return pruned;
   }
 
-  private async readStore(): Promise<RunStore> {
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as RunStore;
-    } catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-        return { runs: [] };
-      }
-
-      throw error;
-    }
+  private async readStore(): Promise<RunRepositoryCheckpoint> {
+    return readPrivateJsonFile(this.filePath, () => ({ runs: [] }));
   }
 }

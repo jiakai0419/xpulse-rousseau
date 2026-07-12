@@ -1,6 +1,5 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import type { Author } from "../../domain/tweet.ts";
+import { readPrivateJsonFile, removePrivateJsonFile, writePrivateJsonFile } from "../storage/privateJsonFile.ts";
 
 export type XStoredTokens = {
   accessToken: string;
@@ -26,24 +25,14 @@ export class FileXTokenStore implements XTokenStore {
   }
 
   async get(): Promise<XStoredTokens | undefined> {
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as XStoredTokens;
-    } catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-        return undefined;
-      }
-
-      throw error;
-    }
+    return readPrivateJsonFile<XStoredTokens | undefined>(this.filePath, () => undefined);
   }
 
   async save(tokens: XStoredTokens): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, JSON.stringify(tokens, null, 2), "utf8");
+    await writePrivateJsonFile(this.filePath, tokens);
   }
 
   async clear(): Promise<void> {
-    await rm(this.filePath, { force: true });
+    await removePrivateJsonFile(this.filePath);
   }
 }

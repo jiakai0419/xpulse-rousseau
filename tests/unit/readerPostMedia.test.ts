@@ -52,7 +52,7 @@ test("renderPostMedia renders a single photo with original-size viewer data", ()
   assert.doesNotMatch(html, /media-duration/);
 });
 
-test("renderPostMedia renders playable videos with inline playback and viewer video data", () => {
+test("renderPostMedia defers playable video loading and exposes pause and viewer controls", () => {
   const videoUrl = "https://video.twimg.com/ext_tw_video/1/vid/avc1/1280x720/demo.mp4";
   const proxied = `/api/media/proxy?url=${encodeURIComponent(videoUrl)}`;
   const html = renderPostMedia(
@@ -76,11 +76,30 @@ test("renderPostMedia renders playable videos with inline playback and viewer vi
 
   assert.match(html, /class="media-grid media-count-1 media-single-video"/);
   assert.match(html, new RegExp(`data-media-video-src="${proxied.replaceAll("?", "\\?")}`));
-  assert.match(html, new RegExp(`<video src="${proxied.replaceAll("?", "\\?")}`));
+  assert.match(html, new RegExp(`data-inline-video-src="${proxied.replaceAll("?", "\\?")}`));
   assert.match(html, /poster="https:\/\/pbs\.twimg\.com\/ext_tw_video_thumb\/1\/img\/demo\.jpg"/);
-  assert.match(html, /muted autoplay playsinline loop preload="auto"/);
+  assert.match(html, /muted playsinline controls preload="none"/);
+  assert.doesNotMatch(html, /autoplay| loop/);
+  assert.match(html, /class="media-button media-video-expand media-viewer-trigger"/);
+  assert.doesNotMatch(html, /<video src=/);
+  assert.doesNotMatch(html, /preload="auto"/);
   assert.match(html, /aria-label="video media"/);
   assert.match(html, /<span class="media-duration">2:05<\/span>/);
+});
+
+test("renderPostMedia only loops animated GIF media", () => {
+  const html = renderPostMedia(
+    post([
+      {
+        type: "animated_gif",
+        previewImageUrl: "https://pbs.twimg.com/tweet_video_thumb/demo.jpg",
+        variants: [{ url: "https://video.twimg.com/tweet_video/demo.mp4", contentType: "video/mp4" }],
+      },
+    ]),
+  );
+
+  assert.match(html, /muted playsinline loop controls preload="none"/);
+  assert.doesNotMatch(html, /autoplay/);
 });
 
 test("renderPostMedia caps galleries at four media items and keeps X-like grid data stable", () => {

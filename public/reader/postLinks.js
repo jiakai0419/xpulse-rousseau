@@ -8,6 +8,7 @@ import {
   linkPreviewImage,
   linkTreatment,
   normalizedPostLinks,
+  proxiedLinkPreviewImageUrl,
 } from "./linkRules.js";
 
 export function renderPostLinks(post) {
@@ -23,14 +24,15 @@ export function renderPostLinks(post) {
     const href = linkHref(link);
     const domain = linkDomain(link);
     const image = linkPreviewImage(link);
+    const imageSrc = proxiedLinkPreviewImageUrl(image);
     const title = link.preview?.title || (hasUsefulDisplayUrl(link) ? link.displayUrl : undefined) || domain || href;
     const description = link.preview?.description || domain || "Linked from original post";
 
-    if (image) {
+    if (image && imageSrc) {
       return `
         <a class="link-card link-card-media-preview" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">
           <span class="link-card-image-wrap">
-            <img src="${escapeHtml(image.url)}" alt="" loading="lazy" />
+            <img src="${escapeHtml(imageSrc)}" alt="" loading="lazy" />
             ${title ? `<strong class="link-card-image-title">${escapeHtml(title)}</strong>` : ""}
           </span>
           <span class="link-card-source">From ${escapeHtml(domain || linkDisplayLabel(link))}</span>

@@ -652,3 +652,89 @@ test("fetchHomeTimeline looks up missing nested quoted posts from reposted sourc
     globalThis.fetch = originalFetch;
   }
 });
+
+test("fetchHomeTimeline counts a failed since_id request before successful baseline fallback", async () => {
+  const originalFetch = globalThis.fetch;
+  const usage: UsageRecord[] = [];
+  let requestCount = 0;
+
+  globalThis.fetch = async (input) => {
+    requestCount += 1;
+    const url = new URL(String(input));
+
+    if (url.searchParams.has("since_id")) {
+      return new Response(JSON.stringify({ title: "Invalid since_id" }), { status: 400 });
+    }
+
+    return new Response(JSON.stringify({ data: [] }), { status: 200 });
+  };
+
+  try {
+    await fetchHomeTimeline({
+      userId: "user-1",
+      accessToken: "token-1",
+      sinceId: "stale-cursor",
+      maxPages: 1,
+      onUsage: (record) => usage.push(record),
+    });
+
+    assert.equal(requestCount, 2);
+    assert.equal(usage.length, 1);
+    assert.equal(usage[0].requestCount, 2);
+    assert.equal(usage[0].failedRequestCount, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("fetchHomeTimeline emits partial usage when a later timeline page fails", async () => {
+  const originalFetch = globalThis.fetch;
+  const usage: UsageRecord[] = [];
+  let requestCount = 0;
+
+  globalThis.fetch = async () => {
+    requestCount += 1;
+
+    if (requestCount === 2) {
+      return new Response("provider unavailable", { status: 503 });
+    }
+
+    return new Response(
+      JSON.stringify({
+        data: [{
+          id: "partial-post",
+          text: "The first page completed before the next page failed.",
+          author_id: "partial-author",
+          created_at: "2026-06-05T00:00:00.000Z",
+        }],
+        includes: {
+          users: [{ id: "partial-author", name: "Partial Author", username: "partial_author" }],
+        },
+        meta: { next_token: "next-page" },
+      }),
+      { status: 200 },
+    );
+  };
+
+  try {
+    await assert.rejects(
+      () =>
+        fetchHomeTimeline({
+          userId: "user-1",
+          accessToken: "token-1",
+          targetResults: 2,
+          maxPages: 2,
+          onUsage: (record) => usage.push(record),
+        }),
+      /503/,
+    );
+
+    assert.equal(requestCount, 2);
+    assert.equal(usage.length, 1);
+    assert.equal(usage[0].requestCount, 2);
+    assert.equal(usage[0].failedRequestCount, 1);
+    assert.deepEqual(usage[0].itemIds, ["partial-post"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

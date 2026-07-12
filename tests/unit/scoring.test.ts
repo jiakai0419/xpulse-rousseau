@@ -163,6 +163,79 @@ test("rankPostsWithOpenAI scores reposted source content instead of the retweet 
   }
 });
 
+test("rankPostsWithOpenAI keeps a reposted source's nested quote context in the scoring prompt", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: { input: Array<{ content: Array<{ text: string }> }> } | undefined;
+  const post = testPost({
+    id: "1900000000000000001",
+    text: "RT @source_author: Exactly this https://t.co/sourcequote",
+    author: { id: "9001", name: "Reposting Account", username: "reposter" },
+    referencedPostType: "retweeted",
+    referencedPostId: "1900000000000000002",
+    referencedPost: {
+      id: "1900000000000000002",
+      text: "Exactly this https://t.co/sourcequote",
+      author: { id: "9002", name: "Source Author", username: "source_author" },
+      createdAt: "2026-06-05T00:01:00.000Z",
+      url: "https://x.com/source_author/status/1900000000000000002",
+      metrics: { likes: 40 },
+      referencedPostType: "quoted",
+      referencedPostId: "1900000000000000003",
+      referencedPost: {
+        id: "1900000000000000003",
+        text: "The benchmark reduced median inference cost by 37% across 12 production workloads.",
+        author: { id: "9003", name: "Quoted Researcher", username: "quoted_researcher" },
+        createdAt: "2026-06-04T23:58:00.000Z",
+        url: "https://x.com/quoted_researcher/status/1900000000000000003",
+        metrics: { likes: 250, impressions: 12000 },
+        language: "en",
+      },
+    },
+  });
+
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(String((init as RequestInit).body));
+    return new Response(
+      JSON.stringify({
+        model: "gpt-test-scoring",
+        output_text: JSON.stringify({
+          scores: [
+            {
+              id: post.id,
+              immediateValue: 8,
+              immediateValueReason: "引用内容包含可验证的生产数据。",
+              informationDensity: 8,
+              informationDensityReason: "给出了降本比例、样本数量和生产场景。",
+            },
+          ],
+        }),
+      }),
+      { status: 200 },
+    );
+  };
+
+  try {
+    await rankPostsWithOpenAI([post], {
+      apiKey: "sk-test",
+      model: "gpt-test-scoring",
+      now: new Date("2026-06-05T00:02:00.000Z"),
+    });
+
+    assert.ok(requestBody);
+    const prompt = JSON.parse(requestBody.input[1].content[0].text);
+    assert.equal(prompt.posts[0].text, "Exactly this https://t.co/sourcequote");
+    assert.equal(prompt.posts[0].referencedPostType, "quoted");
+    assert.equal(
+      prompt.posts[0].referencedPost.text,
+      "The benchmark reduced median inference cost by 37% across 12 production workloads.",
+    );
+    assert.equal(prompt.posts[0].referencedPost.author.username, "quoted_researcher");
+    assert.equal(prompt.posts[0].timelineContext.repostedBy.username, "reposter");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("rankPostsWithOpenAI caches OpenAI scoring while recalculating engagement locally", async () => {
   const originalFetch = globalThis.fetch;
   const cache = memoryOpenAICache();

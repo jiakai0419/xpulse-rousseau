@@ -1,7 +1,13 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { spawnServer, waitForHealth } from "./env-utils.mjs";
+import {
+  createServerInstanceId,
+  isolatedServerStateEnv,
+  spawnServer,
+  waitForHealth,
+} from "./env-utils.mjs";
 import { inspectPngScreenshot } from "./screenshot-probe.mjs";
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 900 };
@@ -185,17 +191,24 @@ export async function collectLocalReaderEvidence(samples, options) {
   }
 
   const screenshotDir = join(outputDir, "local-screenshots");
+  const temporaryStateDirectory = mkdtempSync(join(tmpdir(), "xpulse-local-evidence-"));
+  const instanceId = createServerInstanceId();
   mkdirSync(screenshotDir, { recursive: true });
   writeFileSync(runStorePath, JSON.stringify({ runs: [replayRun] }, null, 2), "utf8");
 
   const child = spawnServer({
     host,
     port,
+    instanceId,
     stdio: ["ignore", "pipe", "pipe"],
     extraEnv: {
-      RUN_STORE_PATH: runStorePath,
+      ...isolatedServerStateEnv(temporaryStateDirectory, { runStorePath }),
       TIMELINE_SOURCE: "replay",
       OPENAI_API_KEY: "",
+      X_USER_ID: "",
+      X_USER_ACCESS_TOKEN: "",
+      X_CLIENT_ID: "",
+      X_CLIENT_SECRET: "",
     },
   });
 
@@ -206,12 +219,20 @@ export async function collectLocalReaderEvidence(samples, options) {
   child.stderr.on("data", (chunk) => {
     serverOutput += chunk.toString();
   });
+  const childExit = new Promise((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
 
   let browser;
   let context;
 
   try {
-    await waitForHealth({ host, port, timeoutMs: 10_000 });
+    await Promise.race([
+      waitForHealth({ host, port, timeoutMs: 10_000, expectedInstanceId: instanceId }),
+      childExit.then((exit) => {
+        throw new Error(`Local evidence server exited early (code ${exit.code ?? "null"}, signal ${exit.signal ?? "null"}).`);
+      }),
+    ]);
     browser = await launchLocalReaderBrowser({ browserChannel, browserChannelExplicit });
     context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: "light" });
     const page = await context.newPage();
@@ -253,5 +274,10 @@ export async function collectLocalReaderEvidence(samples, options) {
     await context?.close().catch(() => {});
     await browser?.close().catch(() => {});
     child.kill("SIGTERM");
+    await Promise.race([childExit, new Promise((resolve) => setTimeout(resolve, 5_000))]);
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
+    rmSync(temporaryStateDirectory, { recursive: true, force: true });
   }
 }

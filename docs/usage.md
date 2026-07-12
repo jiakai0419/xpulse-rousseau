@@ -29,7 +29,7 @@ Required fields:
 Provider-specific fields:
 
 - OpenAI: `model`, `inputTokens`, `outputTokens`, `totalTokens`, `cachedInputTokens`, `reasoningTokens`.
-- X API: `method`, `endpoint`, `requestCount`, `rateLimit.limit`, `rateLimit.remaining`, `rateLimit.resetAt`.
+- X timeline/lookup: `method`, `endpoint`, `requestCount`, optional `failedRequestCount`, `rateLimit.limit`, `rateLimit.remaining`, `rateLimit.resetAt`. These request counts cover every attempted timeline/lookup request, including a failed `since_id` attempt before baseline fallback and requests made before a later page fails. On a failed Pulse, these lines remain attached to the failed refresh job alongside its visible error. OAuth maintenance and low-level OpenAI transport retries are not separate receipt lines today.
 
 ## Receipt Semantics
 

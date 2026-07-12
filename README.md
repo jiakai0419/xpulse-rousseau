@@ -8,7 +8,7 @@ The project is intentionally small at the start: modular TypeScript, reliable en
 
 - Active refresh, initiated by the user.
 - In live mode, prefer newer authenticated X home-timeline posts with a local cursor, then fall back to recent paginated timeline pages when needed.
-- Replay saved X-derived runs without new X/OpenAI calls or online-state mutation.
+- Replay saved X-derived runs without new X API/OpenAI calls or online-state mutation. Reader media can still come from X's CDN unless a test explicitly blocks external media.
 - Remove obvious ads and exact/retweet duplicates.
 - Skip posts that were already shown in previous live selected sets.
 - Score posts with weighted dimensions, including OpenAI quality dimensions and a local engagement signal from the latest X metrics.
@@ -32,7 +32,10 @@ http://localhost:3000
 ## Test
 
 ```bash
+npm run typecheck
+npm run security:secrets
 npm run test:unit
+npm run test:server-entry
 ```
 
 Run the native coverage report when preparing larger refactors:
@@ -53,6 +56,8 @@ npm run x-display:compare-rendering-facts
 npm run x-display:validate-diff-rules
 ```
 
+Ordinary UI smoke blocks non-local media requests, so it checks the saved X-derived Reader structure without depending on X CDN availability. Set `BROWSER_SMOKE_REQUIRE_REMOTE_MEDIA=1` only for a deliberate media-delivery check.
+
 When Original X pages require login during display-fidelity work, do not rely on automated X login from Playwright. In this environment X/Google blocks dedicated automated audit profiles, so the old audit-profile login/auth commands were removed. Use the X display evidence flow with the user's already-authenticated normal Chrome session instead.
 
 For rigorous Original X comparison, use the X display evidence flow: `x-display:collect-local-renderings` finds real-data candidates, `x-display:collect-original-renderings` tracks which Original screenshots/facts have been captured from the user's already-authenticated normal Chrome session, and `x-display:compare-rendering-facts` compares local Reader facts with Original X facts while blocking any checked sample with missing or blank evidence.
@@ -60,6 +65,7 @@ For rigorous Original X comparison, use the X display evidence flow: `x-display:
 For distribution-outside validation after display-sensitive refactors, run a real Online Pulse audit deliberately:
 
 ```bash
+npm run server:stop
 FRESH_PULSE_RUNS=3 npm run x-display:test-fresh-pulse-rendering
 ```
 
@@ -71,7 +77,7 @@ Before broad refactors, run the local pre-refactor baseline:
 npm run refactor:check-baseline
 ```
 
-This runs the environment check, unit tests, API smoke, UI smoke, and X display replay rendering without calling X or OpenAI.
+This runs environment/type/startup checks, unit tests, API smoke, UI smoke, and X display replay rendering without calling the X API or OpenAI. Cheap UI smoke blocks X CDN media as well.
 
 ## CI
 
@@ -80,11 +86,14 @@ GitHub Actions runs the basic repository checks on push and pull request:
 ```bash
 npm ci
 npm run env:check
+npm run typecheck
+npm run security:secrets
+npm run test:server-entry
 npm run test:unit
 npm run test:coverage
 ```
 
-CI intentionally does not run API smoke, UI smoke, X display replay rendering, Original X evidence capture, or fresh Pulse rendering because those depend on local saved X-derived `.data` runs, browser media behavior, authenticated Original X pages, or real X/OpenAI usage.
+CI intentionally does not run API smoke, UI smoke, X display replay rendering, Original X evidence capture, or fresh Pulse rendering because those depend on local saved X-derived `.data` runs, authenticated Original X pages, or real X/OpenAI usage. It does execute an isolated credential-free HTTP entry-point check.
 
 ## Environment Doctor
 
@@ -119,6 +128,8 @@ SELECTED_POST_COUNT=7
 X_TIMELINE_PAGE_SIZE=100
 X_TIMELINE_TARGET_POSTS=100
 X_TIMELINE_MAX_PAGES=3
+X_REQUEST_TIMEOUT_MS=30000
+MEDIA_REQUEST_TIMEOUT_MS=120000
 TIMELINE_SOURCE=replay
 ```
 
@@ -137,6 +148,7 @@ Scoring and translation share `OPENAI_MODEL` by default. To lower OpenAI cost du
 - [Testing strategy](docs/testing.md)
 - [Test coverage matrix](docs/test-coverage-matrix.md)
 - [Local data and evidence policy](docs/local-data.md)
+- [Repository safeguards](docs/repository-safeguards.md)
 - [Display fidelity oracle](docs/display-fidelity-oracle.md)
 - [Display rule ledger](docs/display-rule-ledger.json)
 - [Refactoring plan](docs/refactoring-plan.md)
@@ -145,7 +157,7 @@ Scoring and translation share `OPENAI_MODEL` by default. To lower OpenAI cost du
 - [Online Pulse state](docs/online-pulse-state.md)
 - [UI rendering notes](docs/ui-rendering.md)
 - [Ranking design](docs/ranking-plan.md)
-- [Scoring prompt spec](docs/prompts/scoring-v2.md)
+- [Scoring prompt spec](docs/prompts/scoring-v3.md)
 - [Translation prompt spec](docs/prompts/translation-v2.md)
 - [ADR 0002: Live and replay, no silent fallback](docs/decisions/0002-live-and-replay-no-fallback.md)
 - [Agent rules](AGENTS.md)

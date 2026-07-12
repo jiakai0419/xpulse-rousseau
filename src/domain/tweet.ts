@@ -134,6 +134,7 @@ export type UsageRecord = {
   itemCount: number;
   itemIds: string[];
   requestCount?: number;
+  failedRequestCount?: number;
   rateLimit?: {
     limit?: number;
     remaining?: number;
@@ -217,7 +218,7 @@ export type RunTrace = {
       translation: number;
     };
     promptVersions: {
-      scoring: "scoring-v1" | "scoring-v2";
+      scoring: "scoring-v1" | "scoring-v2" | "scoring-v3";
       translation: "translation-v1" | "translation-v2";
     };
   };

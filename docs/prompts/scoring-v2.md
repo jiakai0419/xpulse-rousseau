@@ -1,5 +1,7 @@
 # Scoring Prompt V2
 
+> Historical specification. V3 supersedes this prompt because V2 omitted quote context nested inside a reposted source. Current Online Pulse uses [`scoring-v3`](scoring-v3.md).
+
 ## Purpose
 
 Score timeline posts so the reader can select a small number of high-value items.

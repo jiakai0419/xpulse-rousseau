@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   aiModelStatus,
+  nextProgressPercent,
   progressDetail,
   progressPercent,
   progressStatusLabel,
@@ -33,6 +34,7 @@ const xUsage = {
   endpoint: "/2/users/:id/timelines/reverse_chronological",
   method: "GET",
   requestCount: 1,
+  failedRequestCount: 1,
   itemCount: 100,
   rateLimit: {
     limit: 15,
@@ -75,6 +77,7 @@ test("usageGroups groups records by provider, operation, and model or endpoint",
       requestCount: group.requestCount,
       itemCount: group.itemCount,
       totalTokens: group.totalTokens,
+      failedRequestCount: group.failedRequestCount,
     })),
     [
       {
@@ -82,12 +85,14 @@ test("usageGroups groups records by provider, operation, and model or endpoint",
         requestCount: 3,
         itemCount: 10,
         totalTokens: 14000,
+        failedRequestCount: 0,
       },
       {
         label: "X timeline",
         requestCount: 1,
         itemCount: 100,
         totalTokens: 0,
+        failedRequestCount: 1,
       },
     ],
   );
@@ -122,16 +127,36 @@ test("renderUsageDetails escapes display text and summarizes usage", () => {
   assert.match(html, /12\.8K tokens/);
   assert.match(html, /2 OpenAI calls/);
   assert.match(html, /1 X call/);
+  assert.match(html, /1 failed request/);
   assert.doesNotMatch(html, /<Usage>/);
 });
 
 test("progress helpers render bounded stage and item progress", () => {
-  assert.equal(progressPercent({ stage: "starting" }), 8);
-  assert.equal(progressPercent({ stage: "scoring", processedItems: 3, totalItems: 7 }), 43);
-  assert.equal(progressPercent({ stage: "scoring", processedItems: 99, totalItems: 7 }), 100);
+  assert.equal(progressPercent({ stage: "starting" }), 2);
+  assert.equal(progressPercent({ stage: "scoring", processedItems: 3, totalItems: 7 }), 50);
+  assert.equal(progressPercent({ stage: "scoring", processedItems: 99, totalItems: 7 }), 72);
   assert.equal(progressStatusLabel({ stage: "scoring" }), "Ranking signal");
   assert.equal(progressStatusLabel({ stage: "unknown", label: "Custom step" }), "Custom step");
   assert.equal(progressText({ stage: "translating", processedItems: 5, totalItems: 7, model: "gpt-5" }), "Translating · 5/7 · gpt-5");
+});
+
+test("progress reserves monotonic ranges for each pipeline stage", () => {
+  const stages = ["starting", "loading", "filtering", "scoring", "translating", "saving", "completed"];
+  const sequence = stages.flatMap((stage) => [
+    progressPercent({ stage, processedItems: 0, totalItems: 10 }),
+    progressPercent({ stage, processedItems: 10, totalItems: 10 }),
+  ]);
+
+  assert.deepEqual(sequence, [2, 6, 6, 24, 24, 34, 34, 72, 72, 90, 90, 98, 100, 100]);
+  assert.equal(sequence.every((value, index) => index === 0 || value >= sequence[index - 1]), true);
+});
+
+test("nextProgressPercent keeps sparse usage updates from moving a stage backward", () => {
+  const afterBatch = nextProgressPercent(34, { stage: "scoring", processedItems: 10, totalItems: 20 });
+
+  assert.equal(afterBatch, 53);
+  assert.equal(nextProgressPercent(afterBatch, { stage: "scoring" }), 53);
+  assert.equal(nextProgressPercent(afterBatch, { stage: "translating", processedItems: 0, totalItems: 7 }), 72);
 });
 
 test("progressDetail keeps operational copy and token context together", () => {

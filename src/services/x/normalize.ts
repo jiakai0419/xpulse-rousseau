@@ -124,7 +124,7 @@ export function indexesFromPayload(payload: XTimelineResponse): XPostIndexes {
   };
 }
 
-function preferredReference(post: XApiPost): XApiPost["referenced_tweets"][number] | undefined {
+function preferredReference(post: XApiPost): NonNullable<XApiPost["referenced_tweets"]>[number] | undefined {
   return post.referenced_tweets?.find((item) => item.type === "quoted") ?? post.referenced_tweets?.[0];
 }
 

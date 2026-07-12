@@ -1,4 +1,5 @@
 import type { ReferencedPost, TimelinePost, UsageRecord } from "../../domain/tweet.ts";
+import { DEFAULT_X_REQUEST_TIMEOUT_MS, fetchTextWithTimeout } from "../http/fetchWithTimeout.ts";
 import type { XTimelineResponse } from "./apiTypes.ts";
 import {
   X_READER_EXPANSIONS,
@@ -13,6 +14,7 @@ import type { XRawTimelineSnapshot } from "./rawSnapshotStore.ts";
 
 export type XLookupEnrichmentOptions = {
   accessToken: string;
+  requestTimeoutMs?: number;
   onRawSnapshot?: (snapshot: XRawTimelineSnapshot) => void | Promise<void>;
   onUsage?: (usage: UsageRecord) => void;
 };
@@ -34,12 +36,18 @@ async function fetchTweetLookupBatch(options: XLookupEnrichmentOptions, ids: str
   rateLimit?: UsageRecord["rateLimit"];
 }> {
   const url = buildTweetLookupUrl(ids);
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${options.accessToken}`,
+  const { response, text: responseText } = await fetchTextWithTimeout(
+    url,
+    {
+      headers: {
+        Authorization: `Bearer ${options.accessToken}`,
+      },
     },
-  });
-  const responseText = await response.text();
+    {
+      label: "X tweet lookup request",
+      timeoutMs: options.requestTimeoutMs ?? DEFAULT_X_REQUEST_TIMEOUT_MS,
+    },
+  );
   let payload: XTimelineResponse | { raw: string } = {};
 
   try {
@@ -82,43 +90,51 @@ async function fetchTweetLookupBatch(options: XLookupEnrichmentOptions, ids: str
 export async function enrichMissingReferencedPosts(options: XLookupEnrichmentOptions, posts: TimelinePost[]): Promise<void> {
   const requestedIds = new Set<string>();
   let requestCount = 0;
+  let failedRequestCount = 0;
   let latestRateLimit: UsageRecord["rateLimit"];
   let attachedCount = 0;
   const requestedItemIds: string[] = [];
 
-  for (let depth = 0; depth < 3; depth += 1) {
-    const missingIds = collectMissingReferencedIds(posts).filter((id) => !requestedIds.has(id));
+  try {
+    for (let depth = 0; depth < 3; depth += 1) {
+      const missingIds = collectMissingReferencedIds(posts).filter((id) => !requestedIds.has(id));
 
-    if (!missingIds.length) {
-      break;
+      if (!missingIds.length) {
+        break;
+      }
+
+      for (let index = 0; index < missingIds.length; index += 100) {
+        const ids = missingIds.slice(index, index + 100);
+
+        ids.forEach((id) => requestedIds.add(id));
+        requestedItemIds.push(...ids);
+        requestCount += 1;
+
+        try {
+          const page = await fetchTweetLookupBatch(options, ids, requestCount);
+          latestRateLimit = page.rateLimit;
+          attachedCount += attachReferencedPosts(posts, page.referencedPostsById);
+        } catch (error) {
+          failedRequestCount += 1;
+          throw error;
+        }
+      }
     }
-
-    for (let index = 0; index < missingIds.length; index += 100) {
-      const ids = missingIds.slice(index, index + 100);
-
-      ids.forEach((id) => requestedIds.add(id));
-      requestedItemIds.push(...ids);
-      const page = await fetchTweetLookupBatch(options, ids, requestCount + 1);
-      requestCount += 1;
-      latestRateLimit = page.rateLimit;
-      attachedCount += attachReferencedPosts(posts, page.referencedPostsById);
+  } finally {
+    if (requestCount) {
+      options.onUsage?.({
+        provider: "x",
+        operation: "x.lookup",
+        label: "X tweet lookup",
+        method: "GET",
+        endpoint: X_TWEET_LOOKUP_ENDPOINT,
+        itemCount: attachedCount,
+        itemIds: requestedItemIds,
+        requestCount,
+        failedRequestCount: failedRequestCount || undefined,
+        rateLimit: latestRateLimit,
+        createdAt: new Date().toISOString(),
+      });
     }
   }
-
-  if (!requestCount) {
-    return;
-  }
-
-  options.onUsage?.({
-    provider: "x",
-    operation: "x.lookup",
-    label: "X tweet lookup",
-    method: "GET",
-    endpoint: X_TWEET_LOOKUP_ENDPOINT,
-    itemCount: attachedCount,
-    itemIds: requestedItemIds,
-    requestCount,
-    rateLimit: latestRateLimit,
-    createdAt: new Date().toISOString(),
-  });
 }

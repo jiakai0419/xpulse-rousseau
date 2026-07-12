@@ -1,13 +1,13 @@
 import { SCORING_WEIGHTS, normalizeWeights } from "../../config/scoring.ts";
 import { readerDisplayPost } from "../../domain/postDisplay.ts";
-import type { RefreshProgress, ScoreDimension, TimelinePost, UsageRecord, WeightedScore } from "../../domain/tweet.ts";
+import type { ReferencedPost, RefreshProgress, ScoreDimension, TimelinePost, UsageRecord, WeightedScore } from "../../domain/tweet.ts";
 import type { OpenAICacheRepository } from "../openai/cache.ts";
 import { openAICacheKey } from "../openai/cache.ts";
 import { analyzeCompleteIds, chunkItems, createOpenAIUsageRecord, formatIncompleteIdsError } from "../openai/operationHelpers.ts";
 import { callOpenAIJson } from "../openai/responses.ts";
 import { engagementSignalDimension } from "./engagement.ts";
 
-export const SCORING_PROMPT_VERSION = "scoring-v2";
+export const SCORING_PROMPT_VERSION = "scoring-v3";
 
 export type OpenAIScoringOptions = {
   apiKey?: string;
@@ -59,6 +59,20 @@ function clamp(score: number): number {
   return Math.max(0, Math.min(10, Number(score.toFixed(1))));
 }
 
+function scoringReferencedPost(post: ReferencedPost): unknown {
+  return {
+    author: {
+      name: post.author.name,
+      username: post.author.username,
+    },
+    text: post.text,
+    createdAt: post.createdAt,
+    language: post.language,
+    referencedPostType: post.referencedPostType,
+    referencedPost: post.referencedPost ? scoringReferencedPost(post.referencedPost) : undefined,
+  };
+}
+
 function buildScoringPrompt(posts: TimelinePost[]): string {
   return JSON.stringify(
     {
@@ -90,19 +104,8 @@ function buildScoringPrompt(posts: TimelinePost[]): string {
           createdAt: source.createdAt,
           language: source.language,
           text: source.text,
-          referencedPostType: post.referencedPostType === "retweeted" ? undefined : post.referencedPostType,
-          referencedPost:
-            post.referencedPost && post.referencedPostType !== "retweeted"
-              ? {
-                  author: {
-                    name: post.referencedPost.author.name,
-                    username: post.referencedPost.author.username,
-                  },
-                  text: post.referencedPost.text,
-                  createdAt: post.referencedPost.createdAt,
-                  language: post.referencedPost.language,
-                }
-              : undefined,
+          referencedPostType: source.referencedPostType,
+          referencedPost: source.referencedPost ? scoringReferencedPost(source.referencedPost) : undefined,
         };
       }),
     },

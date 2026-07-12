@@ -74,6 +74,7 @@ export function usageGroups(records) {
       endpoint: record.endpoint,
       method: record.method,
       requestCount: 0,
+      failedRequestCount: 0,
       itemCount: 0,
       inputTokens: 0,
       outputTokens: 0,
@@ -83,6 +84,7 @@ export function usageGroups(records) {
       rateLimit: record.rateLimit,
     };
     current.requestCount += record.requestCount ?? 1;
+    current.failedRequestCount += record.failedRequestCount ?? 0;
     current.itemCount += record.itemCount ?? 0;
     current.inputTokens += record.inputTokens ?? 0;
     current.outputTokens += record.outputTokens ?? 0;
@@ -121,7 +123,10 @@ export function renderUsageDetails(receipt) {
           const detail =
             item.provider === "openai"
               ? `in ${formatTokens(item.inputTokens)} / out ${formatTokens(item.outputTokens)} / total ${formatTokens(item.totalTokens)}`
-              : `rate ${item.rateLimit?.remaining ?? "?"} / ${item.rateLimit?.limit ?? "?"}`;
+              : [
+                `rate ${item.rateLimit?.remaining ?? "?"} / ${item.rateLimit?.limit ?? "?"}`,
+                item.failedRequestCount ? plural(item.failedRequestCount, "failed request") : "",
+              ].filter(Boolean).join(" · ");
 
           return `
             <div class="usage-item">
@@ -139,23 +144,30 @@ export function renderUsageDetails(receipt) {
 }
 
 export function progressPercent(progress) {
+  const stageRanges = {
+    starting: [2, 6],
+    loading: [6, 24],
+    filtering: [24, 34],
+    scoring: [34, 72],
+    translating: [72, 90],
+    saving: [90, 98],
+    completed: [100, 100],
+    failed: [100, 100],
+  };
+  const [start, end] = stageRanges[progress.stage] ?? [20, 20];
+
   if (progress.totalItems > 0 && progress.processedItems >= 0) {
-    const raw = Math.round((progress.processedItems / progress.totalItems) * 100);
-    return Math.max(10, Math.min(100, raw));
+    const fraction = Math.max(0, Math.min(1, progress.processedItems / progress.totalItems));
+    return Math.round(start + (end - start) * fraction);
   }
 
-  const stagePercent = {
-    starting: 8,
-    loading: 18,
-    filtering: 34,
-    scoring: 58,
-    translating: 78,
-    saving: 90,
-    completed: 100,
-    failed: 100,
-  };
+  return start;
+}
 
-  return stagePercent[progress.stage] ?? 20;
+export function nextProgressPercent(previousPercent, progress) {
+  const previous = Number.isFinite(previousPercent) ? previousPercent : 0;
+
+  return Math.max(previous, progressPercent(progress));
 }
 
 export function progressText(progress) {

@@ -22,14 +22,23 @@ The Codex app also exposes an internal Node binary, but that binary did not incl
 
 ```bash
 npm run env:check
+npm run typecheck
+npm run security:secrets
 npm run server:start
+npm run test:server-entry
 npm run test:smoke-api
 npm run test:smoke-ui
 npm run test:unit
 npm run server:stop
 ```
 
-`npm run server:start` writes `.data/server.pid`. `npm run server:stop` uses that pid file to stop the server cleanly.
+`npm run server:start` writes a private `.data/server.pid` record containing the child pid, project working directory, port, and a unique instance id. `npm run server:stop` verifies the command, working directory, and listener before sending `SIGTERM`; it never guesses that an unrelated Node listener belongs to this project. A failed stop keeps the pid record and reports the failure instead of printing a false success.
+
+If Pulse is already running, shutdown closes new HTTP work but lets that paid job reach its normal saved/failed boundary while retaining the single-writer lock. `server:stop` may therefore report that the process is still draining after its five-second wait. Let it finish unless you deliberately accept losing the in-flight provider work; a later process safely reclaims the dead owner's lock.
+
+The Fresh Pulse audit follows the same rule. After a job starts, polling failure or the normal audit deadline does not trigger a five-second hard kill. The audit waits for graceful completion for at least `FRESH_PULSE_SHUTDOWN_TIMEOUT_MS` (default 25 minutes, never shorter than `FRESH_PULSE_TIMEOUT_MS`) and then continues waiting by default. Only the explicit `FRESH_PULSE_FORCE_KILL_ON_SHUTDOWN_TIMEOUT=1` escape hatch allows a hard kill, with the risk of losing already-billed work.
+
+Temporary smoke servers use an OS-assigned port, a unique run store under the system temporary directory, blank X/OpenAI credentials, and a unique health identity. This keeps parallel smoke runs isolated from the owner's `.data` history and real provider credentials.
 
 ## Issues Already Encountered
 
@@ -90,7 +99,7 @@ npm install --save-dev playwright
 npx playwright install chromium
 ```
 
-This has been done for the current environment. `npm run test:smoke-ui` now verifies the page with Playwright Chromium and writes a screenshot to `.data/ui-smoke.png`.
+This has been done for the current environment. `npm run test:smoke-ui` verifies the page with Playwright Chromium and writes a uniquely named screenshot under `.data/ui-smoke/`.
 
 ### GitHub CLI Missing Or Logged Out
 
@@ -120,7 +129,7 @@ Authenticate when GitHub actions are needed:
 gh auth login
 ```
 
-Current environment status: `gh` is installed and authenticated.
+Check the current login state with `gh auth status`; do not assume that an installed CLI is authenticated. Repository-setting changes require an authenticated owner session.
 
 ### System Chrome Headless May Be Unreliable From Sandbox
 
@@ -155,7 +164,11 @@ TIMELINE_SOURCE=x
 X_TIMELINE_PAGE_SIZE=100
 X_TIMELINE_TARGET_POSTS=100
 X_TIMELINE_MAX_PAGES=3
+X_REQUEST_TIMEOUT_MS=30000
+MEDIA_REQUEST_TIMEOUT_MS=120000
 ```
+
+`X_REQUEST_TIMEOUT_MS` bounds timeline, lookup, authenticated-user, and OAuth token requests. `MEDIA_REQUEST_TIMEOUT_MS` independently bounds streamed `video.twimg.com` proxy requests so a stalled provider cannot hold a Pulse or media connection forever.
 
 Manual token configuration is still supported through `X_USER_ID` and `X_USER_ACCESS_TOKEN`, but the preferred local path is OAuth 2.0 PKCE. See `docs/integrations/x-oauth.md`.
 
@@ -189,9 +202,13 @@ OPENAI_MODEL=gpt-5-nano
 
 Scoring and translation are still separate AI operations in the architecture and usage records. Advanced operation-specific overrides remain available through `OPENAI_SCORING_MODEL` and `OPENAI_TRANSLATION_MODEL`, but the reader UI treats the shared model name as the primary environment signal.
 
+### Local File Privacy
+
+`.env` should be mode `0600`, `.data/` should be `0700`, and sensitive state JSON should be `0600`. Application repositories repair the app-owned `.data/` and private files whenever they read or write state; `env:check` also reports unsafe known paths. A custom `*_PATH` must live in a dedicated existing `0700` directory (or a missing directory the app can create). Existing shared directories and directory symlinks are refused rather than chmodded. This protects OAuth tokens, private Following timeline data, raw X responses, and OpenAI outputs from other local accounts without changing unrelated directory permissions.
+
 ### Dependency Growth
 
-The app currently has no runtime dependencies. When adding dependencies:
+The app currently has no runtime dependencies. Playwright, TypeScript, and Node type definitions are development-only dependencies for browser verification and strict source checking. When adding dependencies:
 
 - Keep domain modules framework-independent.
 - Prefer adding dev dependencies only when they improve testing or tooling.

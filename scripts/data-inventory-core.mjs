@@ -43,6 +43,8 @@ const productStateFiles = new Set([
   "runs.json",
   "seen-posts.json",
   "timeline-cursor.json",
+  "refresh-commit-journal.json",
+  "server-state.lock",
   "x-oauth.json",
   "openai-cache.json",
   "link-preview-cache.json",

@@ -5,14 +5,18 @@
   "type": "module",
   "scripts": {
     "data:inventory": "node scripts/data-inventory.mjs",
+    "data:prune": "node scripts/data-prune.mjs",
     "env:check": "node scripts/doctor.mjs",
     "refactor:check-baseline": "node scripts/verify-refactor.mjs",
+    "security:secrets": "node scripts/check-tracked-secrets.mjs",
     "server:start": "node scripts/dev-server.mjs",
     "server:stop": "node scripts/stop-server.mjs",
     "test:coverage": "node --experimental-strip-types --experimental-test-coverage --test tests/unit/*.test.ts",
+    "test:server-entry": "node scripts/server-entry-smoke.mjs",
     "test:smoke-api": "node scripts/smoke.mjs",
     "test:smoke-ui": "node scripts/browser-smoke.mjs",
     "test:unit": "node --experimental-strip-types --test tests/unit/*.test.ts",
+    "typecheck": "tsc --noEmit",
     "x-display:build-screenshot-review": "node scripts/display-visual-review.mjs",
     "x-display:compare-rendering-facts": "node scripts/display-oracle.mjs",
     "x-display:check-sample-types": "node scripts/render-coverage.mjs",
@@ -23,6 +27,8 @@
     "x-display:validate-diff-rules": "node scripts/display-rule-ledger.mjs"
   },
   "devDependencies": {
-    "playwright": "^1.60.0"
+    "@types/node": "^26.1.1",
+    "playwright": "^1.60.0",
+    "typescript": "^7.0.2"
   }
 }

@@ -28,7 +28,10 @@ export function loadDotEnv(filePath = ".env"): void {
     const key = trimmed.slice(0, separator).trim();
     const value = trimmed.slice(separator + 1).trim().replace(/^["']|["']$/g, "");
 
-    if (!process.env[key]) {
+    // Presence, rather than truthiness, controls precedence. Test and smoke
+    // processes intentionally use an empty value to block real credentials
+    // from being restored from the owner's .env file.
+    if (!Object.prototype.hasOwnProperty.call(process.env, key)) {
       process.env[key] = value;
     }
   }

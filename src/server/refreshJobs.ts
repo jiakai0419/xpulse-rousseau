@@ -26,6 +26,7 @@ export type StartRefreshJobOptions = {
 export type RefreshJobStoreOptions = {
   now?: () => Date;
   createJobId?: () => string;
+  maxRetainedJobs?: number;
 };
 
 export function createProgress(progress: Partial<RefreshProgress> = {}): RefreshProgress {
@@ -65,10 +66,16 @@ export class RefreshJobStore {
   private readonly jobs = new Map<string, RefreshJob>();
   private readonly now: () => Date;
   private readonly createJobId: () => string;
+  private readonly maxRetainedJobs: number;
+  private latestJob?: RefreshJob;
+  private runningJob?: RefreshJob;
+  private readonly idleWaiters = new Set<() => void>();
 
   constructor(options: RefreshJobStoreOptions = {}) {
     this.now = options.now ?? (() => new Date());
     this.createJobId = options.createJobId ?? (() => `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+    const parsedMaxRetainedJobs = Math.floor(options.maxRetainedJobs ?? 20);
+    this.maxRetainedJobs = Number.isFinite(parsedMaxRetainedJobs) ? Math.max(1, parsedMaxRetainedJobs) : 20;
   }
 
   get(jobId: string): RefreshJob | undefined {
@@ -76,11 +83,21 @@ export class RefreshJobStore {
   }
 
   latest(): RefreshJob | undefined {
-    return Array.from(this.jobs.values()).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+    return this.latestJob;
   }
 
   running(): RefreshJob | undefined {
-    return Array.from(this.jobs.values()).find((job) => job.status === "running");
+    return this.runningJob;
+  }
+
+  whenIdle(): Promise<void> {
+    if (!this.runningJob) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+      this.idleWaiters.add(resolve);
+    });
   }
 
   start(source: TimelineSource, options: StartRefreshJobOptions): RefreshJob {
@@ -98,6 +115,9 @@ export class RefreshJobStore {
       progress: createProgress(),
     };
     this.jobs.set(job.id, job);
+    this.latestJob = job;
+    this.runningJob = job;
+    this.prune();
     void this.execute(job, options);
 
     return job;
@@ -114,7 +134,8 @@ export class RefreshJobStore {
 
       await options.commit(run);
       job.status = "completed";
-      job.run = run;
+      const { trace: _trace, ...retainedRun } = run;
+      job.run = retainedRun;
       job.progress = createProgress({
         stage: "completed",
         label: job.source === "replay" ? "Replay complete" : "Pulse complete",
@@ -132,6 +153,36 @@ export class RefreshJobStore {
         detail: job.error,
         usage: job.progress.usage,
       });
+    } finally {
+      if (this.runningJob === job) {
+        this.runningJob = undefined;
+        for (const resolve of this.idleWaiters) {
+          resolve();
+        }
+        this.idleWaiters.clear();
+      }
+
+      this.prune();
+    }
+  }
+
+  private prune(): void {
+    while (this.jobs.size > this.maxRetainedJobs) {
+      let removed = false;
+
+      for (const [jobId, job] of this.jobs) {
+        if (job === this.runningJob || job === this.latestJob) {
+          continue;
+        }
+
+        this.jobs.delete(jobId);
+        removed = true;
+        break;
+      }
+
+      if (!removed) {
+        break;
+      }
     }
   }
 }

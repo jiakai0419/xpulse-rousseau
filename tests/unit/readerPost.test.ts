@@ -32,7 +32,7 @@ function post(overrides: Record<string, unknown> = {}) {
 
 function score(overrides: Record<string, unknown> = {}) {
   return {
-    total: 8.4,
+    total: 84,
     dimensions: [
       {
         key: "immediateValue",

@@ -14,7 +14,7 @@ Replay remains useful for local development, but old replay entries are not a pe
 - Nested quoted posts inside reposted source posts must be preserved. If the home timeline page includes only the quoted-post id, the X client should use tweet lookup to fetch the quoted body instead of leaving a naked status URL in the Reader.
 - Ordinary URL entities remain inline unless the Reader intentionally renders another X-like object for that URL.
 - Media URL entities such as `pic.x.com`, `/photo/`, `/video/`, and URL entities with `media_key` are hidden when the corresponding X media is rendered.
-- Quoted status URLs are hidden when the quoted post is rendered as a quote card.
+- Quoted status URLs are hidden when the quoted post is rendered as a quote card, but only when the status id matches `referencedPostId` or the saved referenced post. Other X status links in the same body remain ordinary inline links.
 - External preview URLs stay visible as inline blue links when the URL appears before more body text, even when the same URL also renders a preview card. Preview-card URLs are hidden only when they act as a trailing rich-object link at the end of the body.
 - External preview URLs render as X-like URL preview cards only when preview metadata exists and the post has no attached image/video media. Online Pulse can resolve missing ordinary web preview metadata for final selected posts when X only returns an expanded URL.
 - When a post has attached photo or video media, keep additional external preview URLs inline and show the attached media. X detail pages commonly prioritize the attached media rather than adding a second URL preview card in the same post body.
@@ -26,8 +26,21 @@ Replay remains useful for local development, but old replay entries are not a pe
   - compact title overlay when image preview is available;
   - title/description text card when X only returns text preview metadata;
 - A single photo or video uses the saved X media dimensions, preserving source aspect ratio within the timeline cap. Tall/vertical media should shrink in width when needed rather than being forced into a full-width crop.
-- A single video autoplays muted inline when a playable X variant exists, and uses the local media proxy for `video.twimg.com` URLs so browser playback is not blocked by cross-origin 403 responses. Single-video frames use a black background with `object-fit: contain`, matching X's treatment of portrait videos inside wide media cards instead of cropping them like photos. The saved duration appears as a small bottom-left overlay.
+- A single video loads its playable variant only when it is near the viewport, then autoplays muted when reduced-motion is not requested. It uses the local media proxy for `video.twimg.com` URLs so browser playback is not blocked by cross-origin 403 responses. Native inline controls provide direct pause/play and an explicit expand button opens the media viewer. Single-video frames use a black background with `object-fit: contain`, matching X's treatment of portrait videos inside wide media cards instead of cropping them like photos. The saved duration remains visible without covering the native controls.
 - Two attached media items render as a two-column 16:9 gallery. Three and four attached media items choose an X-like gallery frame from the saved source shapes: all-landscape sets use a wide 16:9 frame, while mixed/tall sets can remain square. Quoted-post media follows X quote-card behavior: multi-media and single-video previews fill the quote card width, while single photos can still use the source-ratio width/height cap.
+
+## Runtime And Accessibility Rules
+
+- Startup recovers the latest Pulse job before requesting the latest saved run. A completed or running recovered job therefore cannot be overwritten by an older `/api/runs/latest` response. If the recovered job failed, its server error remains visibly above the prior saved results.
+- Pipeline progress uses non-overlapping stage ranges: loading, filtering, scoring, translating, and saving advance through successive portions of the same bar. Per-stage item counts refine progress inside that stage instead of resetting the whole bar.
+- OAuth callback failures render in the visible attention panel and survive initial saved-run rendering. A deliberate new Pulse action clears the old notice and replaces it with current progress.
+- The timeline itself is not an `aria-live` region. Only the compact status node announces runtime changes, avoiding full-card re-announcements during progress and result replacement.
+- The media viewer makes the application shell inert, traps Tab focus inside the dialog, restores focus to the opener, and leaves arrow keys to native video and form controls. Left/right gallery navigation applies only when focus is not in one of those controls.
+- A populated quote card is an article with an explicit `Original` link. The whole article does not impersonate a link around nested media buttons and links. A link-only quote placeholder can remain a single ordinary anchor because it has no nested interactive content.
+
+## Signal Total Contract
+
+Current saved `WeightedScore.total` values use a `0-100` scale, while dimension scores use `0-10`. The Reader always divides an unmarked total by ten for its `0-10` Signal display; it never guesses the scale from the numeric value. A legacy `0-10` total is supported only when the score explicitly declares `totalScale: 10`, `scale: "0-10"`, or the equivalent `format.totalScale` field.
 
 ## Current Audit Notes
 
@@ -93,6 +106,10 @@ DISPLAY_ORACLE_REQUIRE_ALL=1 npm run x-display:compare-rendering-facts
 ```
 
 The intended standard is the whole inventory, not a handful of highlighted failures. If a new display issue appears, collect or refresh a broad inventory, fill Original evidence, and make the strict full-inventory Oracle pass again.
+
+Reader startup treats saved-job recovery and latest-run loading as one generation of asynchronous work. If the owner starts a newer Pulse before either response returns, those older responses are discarded and cannot replace the new result or clear its recovery id. Before an Online Pulse POST, the Reader also refreshes X auth status so a long-open tab shows the account selected by the server's time-stable OAuth/manual rule.
+
+External preview images are rendered through the local safe-image endpoint, never from the metadata URL directly. This applies to previously cached previews too: the endpoint repeats public-network and redirect validation with a DNS-pinned connection, enforces a size limit, and serves only supported raster image types.
 
 When auditing `Original` pages, never assume the first X `article[data-testid="tweet"]` is the target post. Replies and conversation pages can render parent posts above the target. Match the article containing the exact `/status/{postId}` link before screenshotting or extracting facts.
 

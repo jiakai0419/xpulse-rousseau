@@ -28,13 +28,13 @@ export function renderQuotedPost(post, options = {}) {
     const label = linkDisplayLabel(quoteLink);
 
     return `
-      <article class="quote-card quote-card-placeholder" role="link" tabindex="0" data-quote-url="${escapeHtml(href)}" aria-label="View quoted post on X">
+      <a class="quote-card quote-card-placeholder" href="${escapeHtml(href)}" target="_blank" rel="noreferrer" aria-label="View quoted post on X">
         <div class="quote-placeholder-head">
           <span class="quote-label">Quoted post</span>
           <span>Open on X</span>
         </div>
         <strong>${escapeHtml(label)}</strong>
-      </article>
+      </a>
     `;
   }
 
@@ -42,7 +42,7 @@ export function renderQuotedPost(post, options = {}) {
   const quoteHasMedia = Boolean(quote.media?.length);
 
   return `
-    <article class="quote-card${quoteHasMedia ? " quote-card-has-media" : ""}" role="link" tabindex="0" data-quote-url="${escapeHtml(quote.url)}" aria-label="View quoted post on X">
+    <article class="quote-card${quoteHasMedia ? " quote-card-has-media" : ""}">
       <div class="quote-head">
         ${renderAvatar(quote.author)}
         <div class="quote-author-line">
@@ -51,6 +51,7 @@ export function renderQuotedPost(post, options = {}) {
           <span>·</span>
           <time datetime="${escapeHtml(quote.createdAt)}">${escapeHtml(formatDate(quote.createdAt))}</time>
         </div>
+        <a class="quote-open-link" href="${escapeHtml(quote.url)}" target="_blank" rel="noreferrer" aria-label="View quoted post on X">Original</a>
       </div>
       ${quoteText ? `<p class="quote-text">${quoteText}</p>` : ""}
       ${renderPostMedia(quote)}

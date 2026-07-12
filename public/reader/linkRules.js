@@ -72,6 +72,20 @@ export function linkPreviewImage(link) {
     .sort((a, b) => ((b.width ?? 0) * (b.height ?? 0)) - ((a.width ?? 0) * (a.height ?? 0)))[0];
 }
 
+export function proxiedLinkPreviewImageUrl(image) {
+  try {
+    const url = new URL(image?.url);
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return "";
+    }
+
+    return `/api/link-preview/image?url=${encodeURIComponent(url.toString())}`;
+  } catch {
+    return "";
+  }
+}
+
 export function hasUsefulLinkPreview(link) {
   return Boolean(linkPreviewImage(link) || link.preview?.title || link.preview?.description);
 }
@@ -112,6 +126,21 @@ export function isXStatusLink(link) {
   }
 }
 
+export function xStatusId(value) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.replace(/^www\./, "").toLowerCase();
+
+    if (host !== "x.com" && host !== "twitter.com") {
+      return "";
+    }
+
+    return url.pathname.match(/\/status\/(\d+)/)?.[1] ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function isReferencedStatusLink(post, link) {
   if (isMediaLink(link)) {
     return false;
@@ -121,11 +150,14 @@ export function isReferencedStatusLink(post, link) {
     return false;
   }
 
-  if (post.referencedPost?.url && linkHref(link).startsWith(post.referencedPost.url)) {
-    return true;
-  }
+  const referencedIds = new Set(
+    [post.referencedPostId, post.referencedPost?.id, xStatusId(post.referencedPost?.url)]
+      .filter(Boolean)
+      .map(String),
+  );
+  const linkedStatusId = xStatusId(linkHref(link));
 
-  return isXStatusLink(link);
+  return Boolean(linkedStatusId && referencedIds.has(linkedStatusId));
 }
 
 export function linkTokens(link) {

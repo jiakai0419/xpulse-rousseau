@@ -2,6 +2,7 @@ import {
   formatElapsed,
 } from "./reader/format.js";
 import { renderPost } from "./reader/post.js";
+import { pulseJobRecovery, shouldApplyLatestRun } from "./reader/recovery.js";
 import {
   nextSelectedSource,
   sourceToggleDisplay,
@@ -10,8 +11,8 @@ import {
 } from "./reader/sourceStatus.js";
 import {
   aiModelStatus,
+  nextProgressPercent,
   progressDetail,
-  progressPercent,
   progressStatusLabel,
   progressText,
   receiptFromRecords,
@@ -20,6 +21,7 @@ import {
 } from "./reader/status.js";
 
 const refreshButton = document.querySelector("#refresh-button");
+const appShellNode = document.querySelector(".app-shell");
 const statusNode = document.querySelector("#status");
 const usagePanelNode = document.querySelector("#usage-panel");
 const resultsNode = document.querySelector("#results");
@@ -49,6 +51,9 @@ let mediaViewerItems = [];
 let mediaViewerIndex = 0;
 let mediaViewerPreviousFocus = null;
 let inlineVideoObserver = null;
+let persistentNotice = null;
+let runRenderGeneration = 0;
+let displayedProgressPercent = 0;
 let xAuthState = {
   configured: false,
   authenticated: false,
@@ -73,19 +78,43 @@ function renderServerProgress(progress, startedAt) {
   taskProgressNode.hidden = false;
   taskProgressLabelNode.textContent = progressText(progress);
   taskProgressElapsedNode.textContent = formatElapsed(Date.now() - startedAt);
-  taskProgressBarNode.style.width = `${progressPercent(progress)}%`;
+  displayedProgressPercent = nextProgressPercent(displayedProgressPercent, progress);
+  taskProgressBarNode.style.width = `${displayedProgressPercent}%`;
   taskProgressDetailNode.textContent = progressDetail(progress, totals);
   statusNode.textContent = progressStatusLabel(progress);
   renderUsage(receiptFromRecords("Usage", progressUsage));
 }
 
-function renderNotice(message, detail = "") {
+function renderNotice(message, detail = "", options = {}) {
+  if (options.persist) {
+    persistentNotice = { message, detail };
+  }
+
   taskProgressNode.hidden = false;
   taskProgressLabelNode.textContent = message;
   taskProgressElapsedNode.textContent = "";
   taskProgressBarNode.style.width = "100%";
   taskProgressDetailNode.textContent = detail;
   statusNode.textContent = detail ? `${message}: ${detail}` : message;
+}
+
+function clearVisibleStatus() {
+  statusNode.textContent = "";
+  taskProgressNode.hidden = true;
+}
+
+function restorePersistentNotice() {
+  if (persistentNotice) {
+    renderNotice(persistentNotice.message, persistentNotice.detail);
+    return;
+  }
+
+  clearVisibleStatus();
+}
+
+function clearPersistentNotice() {
+  persistentNotice = null;
+  clearVisibleStatus();
 }
 
 function setSelectedSource(source) {
@@ -150,33 +179,45 @@ function renderXAuthStatus(state) {
 }
 
 function renderRun(run) {
+  runRenderGeneration += 1;
   closeMediaViewer({ restoreFocus: false });
-  statusNode.textContent = "";
-  taskProgressNode.hidden = true;
   renderUsage(run.usageReceipt);
   resultsNode.innerHTML = run.selectedPosts.map((selectedPost, index) => renderPost(selectedPost, index)).join("");
   syncInlineVideos();
+  restorePersistentNotice();
 }
 
 function prepareInlineVideo(video) {
   video.muted = true;
   video.playsInline = true;
-  video.preload = "auto";
+  video.preload = "none";
+}
 
-  if (video.readyState === 0) {
-    video.load();
+function loadInlineVideo(video) {
+  prepareInlineVideo(video);
+
+  if (video.src || !video.dataset.inlineVideoSrc) {
+    return;
   }
+
+  video.src = video.dataset.inlineVideoSrc;
+  video.load();
 }
 
 function playInlineVideo(video) {
-  prepareInlineVideo(video);
+  loadInlineVideo(video);
+
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    return;
+  }
+
   video.play().catch(() => {
     // Muted inline playback is normally allowed; keep the poster visible if the browser declines.
   });
 }
 
 function syncInlineVideos() {
-  const videos = Array.from(resultsNode.querySelectorAll(".media-item video"));
+  const videos = Array.from(resultsNode.querySelectorAll("video[data-inline-video-src]"));
 
   inlineVideoObserver?.disconnect();
   inlineVideoObserver = null;
@@ -190,7 +231,10 @@ function syncInlineVideos() {
   }
 
   if (!("IntersectionObserver" in window)) {
-    videos.forEach(playInlineVideo);
+    videos.forEach((video) => {
+      loadInlineVideo(video);
+      video.preload = "metadata";
+    });
     return;
   }
 
@@ -206,7 +250,7 @@ function syncInlineVideos() {
         }
       }
     },
-    { threshold: 0.35 },
+    { rootMargin: "240px 0px", threshold: 0.01 },
   );
 
   videos.forEach((video) => inlineVideoObserver.observe(video));
@@ -219,7 +263,7 @@ function collectMediaViewerItems(button) {
     return [];
   }
 
-  return Array.from(grid.querySelectorAll(".media-button")).map((itemButton) => ({
+  return Array.from(grid.querySelectorAll(".media-viewer-trigger")).map((itemButton) => ({
     type: itemButton.dataset.mediaType || "photo",
     src: itemButton.dataset.mediaFullSrc || itemButton.dataset.mediaSrc || "",
     fallbackSrc: itemButton.dataset.mediaSrc || "",
@@ -286,6 +330,8 @@ function openMediaViewer(button) {
   mediaViewerIndex = Number.isFinite(requestedIndex) ? Math.max(0, Math.min(items.length - 1, requestedIndex)) : 0;
   mediaViewerPreviousFocus = document.activeElement;
   mediaViewerNode.hidden = false;
+  appShellNode.inert = true;
+  appShellNode.setAttribute("inert", "");
   document.body.classList.add("media-viewer-open");
   renderMediaViewer();
   mediaViewerCloseButton.focus({ preventScroll: true });
@@ -298,6 +344,8 @@ function closeMediaViewer(options = {}) {
 
   const { restoreFocus = true } = options;
   mediaViewerNode.hidden = true;
+  appShellNode.inert = false;
+  appShellNode.removeAttribute("inert");
   document.body.classList.remove("media-viewer-open");
   mediaViewerVideoNode.pause();
   mediaViewerVideoNode.removeAttribute("src");
@@ -346,53 +394,48 @@ function handleResultsClick(event) {
     return;
   }
 
-  const mediaButton = event.target.closest(".media-button");
+  const mediaButton = event.target.closest(".media-viewer-trigger");
 
   if (mediaButton && resultsNode.contains(mediaButton)) {
     openMediaViewer(mediaButton);
-    return;
   }
-
-  const quoteCard = event.target.closest(".quote-card[data-quote-url]");
-
-  if (!quoteCard || !resultsNode.contains(quoteCard)) {
-    return;
-  }
-
-  if (event.target.closest("a, button, .media-button")) {
-    return;
-  }
-
-  window.open(quoteCard.dataset.quoteUrl, "_blank", "noopener,noreferrer");
-}
-
-function handleResultsKeydown(event) {
-  if (event.key !== "Enter" && event.key !== " ") {
-    return;
-  }
-
-  const mediaButton = event.target.closest(".media-button");
-
-  if (mediaButton && resultsNode.contains(mediaButton)) {
-    event.preventDefault();
-    openMediaViewer(mediaButton);
-    return;
-  }
-
-  const quoteCard = event.target.closest(".quote-card[data-quote-url]");
-
-  if (!quoteCard || !resultsNode.contains(quoteCard) || event.target.closest("a, button, .media-button")) {
-    return;
-  }
-
-  event.preventDefault();
-  window.open(quoteCard.dataset.quoteUrl, "_blank", "noopener,noreferrer");
 }
 
 function handleMediaViewerClick(event) {
   if (event.target === mediaViewerNode || event.target.classList.contains("media-viewer-stage")) {
     closeMediaViewer();
   }
+}
+
+function mediaViewerFocusableElements() {
+  return Array.from(mediaViewerNode.querySelectorAll("button:not([disabled]), video[controls], input, select, textarea, [tabindex]:not([tabindex='-1'])"))
+    .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+}
+
+function trapMediaViewerFocus(event) {
+  const focusable = mediaViewerFocusableElements();
+
+  if (!focusable.length) {
+    event.preventDefault();
+    mediaViewerNode.focus();
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+
+  if (event.shiftKey && (active === first || !mediaViewerNode.contains(active))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !mediaViewerNode.contains(active))) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function shouldKeepViewerArrowKey(event) {
+  return Boolean(event.target.closest?.("video, audio, input, textarea, select, [contenteditable='true'], [role='slider'], [role='spinbutton'], [role='textbox']"));
 }
 
 function handleMediaViewerKeydown(event) {
@@ -403,10 +446,12 @@ function handleMediaViewerKeydown(event) {
   if (event.key === "Escape") {
     event.preventDefault();
     closeMediaViewer();
-  } else if (event.key === "ArrowLeft") {
+  } else if (event.key === "Tab") {
+    trapMediaViewerFocus(event);
+  } else if (event.key === "ArrowLeft" && !shouldKeepViewerArrowKey(event)) {
     event.preventDefault();
     moveMediaViewer(-1);
-  } else if (event.key === "ArrowRight") {
+  } else if (event.key === "ArrowRight" && !shouldKeepViewerArrowKey(event)) {
     event.preventDefault();
     moveMediaViewer(1);
   }
@@ -420,11 +465,19 @@ function triggerPulseBurst() {
 }
 
 async function refresh() {
-  if (selectedSource === "x" && !xAuthState.xReady) {
-    renderNotice("Online unavailable", "Connect X first.");
-    return;
+  if (selectedSource === "x") {
+    // Re-read the selected identity immediately before Online work. This keeps a
+    // long-open page or another-tab logout from showing a stale source account.
+    const currentAuthState = await loadXAuthStatus();
+
+    if (!currentAuthState?.xReady || selectedSource !== "x") {
+      renderNotice("Online unavailable", "Connect X first.");
+      return;
+    }
   }
 
+  clearPersistentNotice();
+  runRenderGeneration += 1;
   triggerPulseBurst();
   const startedAt = Date.now();
 
@@ -452,7 +505,7 @@ async function refresh() {
     await followPulseJob(payload.job, startedAt);
   } catch (error) {
     localStorage.removeItem(activeJobStorageKey);
-    renderNotice("Needs attention", error instanceof Error ? error.message : "Pulse failed.");
+    renderNotice("Needs attention", error instanceof Error ? error.message : "Pulse failed.", { persist: true });
   }
 }
 
@@ -462,6 +515,7 @@ async function followPulseJob(initialJob, startedAt = Date.now()) {
   }
 
   let job = initialJob;
+  displayedProgressPercent = 0;
   localStorage.setItem(activeJobStorageKey, job.id);
   refreshButton.disabled = true;
   refreshButton.setAttribute("aria-busy", "true");
@@ -486,18 +540,47 @@ async function followPulseJob(initialJob, startedAt = Date.now()) {
       throw new Error(job.error ?? "Pulse failed.");
     }
 
+    if (!job.run) {
+      throw new Error("Pulse completed without a saved run.");
+    }
+
     renderRun(job.run);
     localStorage.removeItem(activeJobStorageKey);
+    return "completed";
   } catch (error) {
     localStorage.removeItem(activeJobStorageKey);
-    renderNotice("Needs attention", error instanceof Error ? error.message : "Pulse failed.");
+    renderNotice("Needs attention", error instanceof Error ? error.message : "Pulse failed.", { persist: true });
+    return "failed";
   } finally {
     refreshButton.disabled = false;
     refreshButton.setAttribute("aria-busy", "false");
   }
 }
 
+async function recoverPulseJob(job) {
+  const recovery = pulseJobRecovery(job);
+
+  if (recovery.kind === "follow") {
+    return followPulseJob(recovery.job, Date.parse(recovery.job.createdAt) || Date.now());
+  }
+
+  if (recovery.kind === "render") {
+    renderRun(recovery.run);
+    localStorage.removeItem(activeJobStorageKey);
+    return "completed";
+  }
+
+  if (recovery.kind === "error") {
+    localStorage.removeItem(activeJobStorageKey);
+    renderNotice("Needs attention", recovery.message, { persist: true });
+    return "failed";
+  }
+
+  return "none";
+}
+
 async function loadRecoverablePulseJob() {
+  const requestedGeneration = runRenderGeneration;
   const storedJobId = localStorage.getItem(activeJobStorageKey);
 
   if (storedJobId) {
@@ -505,18 +588,23 @@ async function loadRecoverablePulseJob() {
       const response = await fetch(`/api/runs/jobs/${encodeURIComponent(storedJobId)}`);
       const payload = await response.json();
 
-      if (response.ok && payload.job?.status === "running") {
-        await followPulseJob(payload.job, Date.parse(payload.job.createdAt) || Date.now());
-        return;
-      }
+      if (response.ok) {
+        if (!shouldApplyLatestRun(requestedGeneration, runRenderGeneration)) {
+          return "stale";
+        }
 
-      if (response.ok && payload.job?.status === "completed" && payload.job.run) {
-        renderRun(payload.job.run);
-        localStorage.removeItem(activeJobStorageKey);
-        return;
+        const outcome = await recoverPulseJob(payload.job);
+
+        if (outcome !== "none") {
+          return outcome;
+        }
       }
     } catch {
       // Fall through to latest job recovery.
+    }
+
+    if (!shouldApplyLatestRun(requestedGeneration, runRenderGeneration)) {
+      return "stale";
     }
 
     localStorage.removeItem(activeJobStorageKey);
@@ -526,37 +614,69 @@ async function loadRecoverablePulseJob() {
     const response = await fetch("/api/runs/jobs/latest");
     const payload = await response.json();
 
-    if (response.ok && payload.job?.status === "running") {
-      await followPulseJob(payload.job, Date.parse(payload.job.createdAt) || Date.now());
+    if (response.ok) {
+      if (!shouldApplyLatestRun(requestedGeneration, runRenderGeneration)) {
+        return "stale";
+      }
+
+      return recoverPulseJob(payload.job);
     }
   } catch {
     // A missing recoverable job should not block reading the latest saved run.
   }
+
+  if (!shouldApplyLatestRun(requestedGeneration, runRenderGeneration)) {
+    return "stale";
+  }
+
+  return "none";
 }
 
 async function loadLatest() {
+  const requestedGeneration = runRenderGeneration;
+
   try {
     const response = await fetch("/api/runs/latest");
     const payload = await response.json();
 
+    if (!response.ok) {
+      throw new Error(payload.error ?? "Latest saved Pulse could not be loaded.");
+    }
+
+    if (!shouldApplyLatestRun(requestedGeneration, runRenderGeneration)) {
+      return false;
+    }
+
     if (payload.run) {
       renderRun(payload.run);
+      return true;
     }
-  } catch {
-    statusNode.textContent = "";
+  } catch (error) {
+    if (shouldApplyLatestRun(requestedGeneration, runRenderGeneration) && !persistentNotice) {
+      renderNotice("Needs attention", error instanceof Error ? error.message : "Latest saved Pulse could not be loaded.", { persist: true });
+    }
   }
+
+  return false;
 }
 
 async function loadXAuthStatus() {
   try {
     const response = await fetch("/api/auth/x/status");
     const state = await response.json();
+
+    if (!response.ok) {
+      throw new Error(state.error ?? "X status lookup failed.");
+    }
+
     renderXAuthStatus(state);
+    return state;
   } catch {
     renderXAuthAvatar();
     xAuthStatusNode.textContent = "X status unknown";
     xAuthButton.hidden = true;
     setSelectedSource("replay");
+    return undefined;
   }
 }
 
@@ -588,8 +708,21 @@ function handleAuthCallbackMessage() {
     return;
   }
 
-  statusNode.textContent = auth === "success" ? "X connected" : `X connection failed: ${params.get("message") ?? "unknown"}`;
+  if (auth === "success") {
+    renderNotice("X connected");
+  } else {
+    renderNotice("X connection failed", params.get("message") ?? "unknown", { persist: true });
+  }
+
   window.history.replaceState({}, "", window.location.pathname);
+}
+
+async function initializeReader() {
+  const recoveryOutcome = await loadRecoverablePulseJob();
+
+  if (recoveryOutcome === "none" || recoveryOutcome === "failed") {
+    await loadLatest();
+  }
 }
 
 sourceToggleButton.addEventListener("click", toggleSelectedSource);
@@ -600,14 +733,12 @@ xAuthButton.addEventListener("click", (event) => {
 });
 refreshButton.addEventListener("click", refresh);
 resultsNode.addEventListener("click", handleResultsClick);
-resultsNode.addEventListener("keydown", handleResultsKeydown);
 mediaViewerCloseButton.addEventListener("click", () => closeMediaViewer());
 mediaViewerPrevButton.addEventListener("click", () => moveMediaViewer(-1));
 mediaViewerNextButton.addEventListener("click", () => moveMediaViewer(1));
 mediaViewerNode.addEventListener("click", handleMediaViewerClick);
 document.addEventListener("keydown", handleMediaViewerKeydown);
 handleAuthCallbackMessage();
-loadAppStatus();
-loadXAuthStatus();
-loadLatest();
-loadRecoverablePulseJob();
+void loadAppStatus();
+void loadXAuthStatus();
+void initializeReader();

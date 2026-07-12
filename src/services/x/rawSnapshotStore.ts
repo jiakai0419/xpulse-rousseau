@@ -1,5 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { updatePrivateJsonFile } from "../storage/privateJsonFile.ts";
 
 export type XRawTimelineSnapshot = {
   id: string;
@@ -33,22 +32,8 @@ export class FileXRawSnapshotRepository implements XRawSnapshotRepository {
   }
 
   async save(snapshot: XRawTimelineSnapshot): Promise<void> {
-    const store = await this.readStore();
-    store.snapshots.unshift(snapshot);
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, JSON.stringify({ snapshots: store.snapshots.slice(0, 50) }, null, 2), "utf8");
-  }
-
-  private async readStore(): Promise<XRawSnapshotStore> {
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as XRawSnapshotStore;
-    } catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-        return { snapshots: [] };
-      }
-
-      throw error;
-    }
+    await updatePrivateJsonFile(this.filePath, () => ({ snapshots: [] }), (store: XRawSnapshotStore) => ({
+      snapshots: [snapshot, ...store.snapshots].slice(0, 50),
+    }));
   }
 }

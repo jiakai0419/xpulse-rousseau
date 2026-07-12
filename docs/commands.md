@@ -9,17 +9,28 @@ This guide explains the project commands in product language. Keep it updated wh
 | `npm run server:start` | Start the local web app. | No |
 | `npm run server:stop` | Stop the local web app started by `npm run server:start`. | No |
 | `npm run env:check` | Check local environment, ports, Node, GitHub CLI, and browser tooling assumptions. | No |
+| `npm run typecheck` | Strictly type-check application source, including the HTTP entry point. | No |
+| `npm run security:secrets` | Scan tracked and untracked worktree files for common credential-shaped values without printing the value. | No |
 | `npm run test:unit` | Run the unit test suite. | No |
 | `npm run test:coverage` | Run unit tests with Node's native coverage report. | No |
+| `npm run test:server-entry` | Start an isolated empty server; verify health, HTTP safety wiring, graceful exit, and state-lock cleanup. | No |
 | `npm run test:smoke-api` | Start a temporary replay server and verify the reader API path from a saved live X run. | No |
-| `npm run test:smoke-ui` | Start a temporary replay server and verify the reader UI path from a saved live X run with Playwright. | No |
-| `npm run refactor:check-baseline` | Run the local pre-refactor baseline: environment check, unit tests, API smoke, UI smoke, and replay rendering. | No |
+| `npm run test:smoke-ui` | Start a temporary replay server and verify the reader UI path from a saved live X run with Playwright; external media is blocked by default. | No |
+| `npm run refactor:check-baseline` | Run the timed local baseline: environment, type, HTTP entry, unit, API/UI smoke, and replay rendering checks. | No |
 
 ## Local Data Stewardship
 
 | Command | Purpose | Calls X/OpenAI? |
 | --- | --- | --- |
 | `npm run data:inventory` | Scan `.data/`, classify local assets, and summarize saved runs and Original evidence before cleanup or evidence-heavy work. | No |
+| `npm run data:prune` | Dry-run a bounded cleanup plan for old timestamped generated reports; product state, baselines, durable Original screenshots, and unknown paths are preserved. | No |
+
+`data:prune` never deletes by default. After reviewing the dry run (use `--verbose` for every path), apply the exact known-family policy explicitly:
+
+```bash
+npm run data:prune -- --verbose
+npm run data:prune -- --keep=5 --apply --confirm=prune-generated-evidence
+```
 
 ## X Display Fidelity Workflow
 
@@ -28,7 +39,7 @@ These commands protect the X-like rendering surface. They use real X-derived dat
 | Step | Command | What It Answers | Calls X/OpenAI? |
 | --- | --- | --- | --- |
 | 1 | `npm run x-display:check-sample-types` | Do saved real samples cover enough rendering types, such as retweets, quotes, videos, multi-media, external previews, X status links, and text-only posts? | No |
-| 2 | `npm run x-display:test-replay-rendering` | Does the Reader still render saved real X runs correctly in replay/offline mode? | No |
+| 2 | `npm run x-display:test-replay-rendering` | Does the Reader still render saved real X runs correctly in replay/offline mode? External media is blocked unless explicitly enabled. | No |
 | 3 | `npm run x-display:collect-local-renderings` | What does our local Reader render for a broad sample set? Captures local screenshots, local facts, buckets, risks, and missing-data signals. | Optional X API only when `DISPLAY_INVENTORY_FRESH=1` |
 | 4 | `npm run x-display:collect-original-renderings` | What does Original X render for the same posts? Plans or imports reusable Original screenshots and Original facts keyed by post id. | Uses captured Chrome results; the command itself does not call OpenAI |
 | 5 | `npm run x-display:compare-rendering-facts` | Do local Reader facts and Original X facts disagree for checked posts? This is a structured facts comparison, not a screenshot pixel diff. Missing or low-quality evidence blocks the sample instead of passing it. | No |
@@ -47,6 +58,8 @@ DISPLAY_ORACLE_REQUIRE_ALL=1 npm run x-display:compare-rendering-facts
 npm run x-display:build-screenshot-review
 ```
 
+`x-display:collect-local-renderings` acquires the product-state writer lock because preview enrichment and optional OAuth refresh can update caches/tokens. Stop the normal Reader server first. Fresh Pulse audit also writes the real Run/Seen/Cursor state and must not run beside another server. Cheap replay smoke uses isolated temporary state and can run independently.
+
 For display-sensitive release validation, run fresh Pulse deliberately:
 
 ```bash
@@ -54,6 +67,8 @@ FRESH_PULSE_RUNS=3 npm run x-display:test-fresh-pulse-rendering
 ```
 
 This path spends real X/OpenAI usage and should not be part of the cheap loop.
+
+From the moment the audit attempts the Pulse POST—including when the response is lost before a job id arrives—it treats paid work as possibly started. If polling disconnects or reaches `FRESH_PULSE_TIMEOUT_MS`, the audit signals the server to drain and then waits up to `FRESH_PULSE_SHUTDOWN_TIMEOUT_MS` (25 minutes by default, or the larger job timeout). It keeps waiting after that deadline instead of force-killing paid work. `FRESH_PULSE_FORCE_KILL_ON_SHUTDOWN_TIMEOUT=1` is an explicit emergency escape hatch; using it can discard provider work that was already billed.
 
 ## Internal Helper Scripts
 
@@ -75,6 +90,8 @@ Most scripts should be reached through the command names above. A few files in `
 | `scripts/display-original-evidence-cache-core.mjs` | Shared pure Original evidence cache rules: compact capture-batch samples, plan the next missing/invalid Original capture batch, and build stable cache reports. |
 | `scripts/display-screenshot-quality.mjs` | Screenshot quality probes used by Original evidence and Oracle checks. |
 | `scripts/env-utils.mjs` | Shared host, process, and temporary server helpers. |
+| `scripts/data-prune-core.mjs` | Safe generated-evidence family recognition and bounded retention planning. |
+| `scripts/secret-scan-core.mjs` | Small credential-shape scanner used by the local/CI secret gate. |
 | `scripts/render-buckets.mjs` | Shared X rendering bucket classification used by coverage, replay rendering, and tests. |
 | `scripts/screenshot-probe.mjs` | Screenshot inspection helper used by local/Original evidence collectors and tests. |
 | `scripts/display-original-evidence-chrome-capture.mjs` | Chrome-runtime helper for capturing Original X evidence from the user's already-authenticated Chrome session; it is intentionally not an npm command because normal Node commands do not own that browser session. |

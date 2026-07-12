@@ -836,6 +836,38 @@ button {
   outline-offset: -2px;
 }
 
+.media-video-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.media-video-expand {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 20, 25, 0.76);
+  color: #fff;
+  font-size: 16px;
+  cursor: zoom-in;
+}
+
+.media-video-expand:hover {
+  background: rgba(15, 20, 25, 0.9);
+}
+
+.media-video-expand:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
 .media-count-1 .media-item {
   aspect-ratio: var(--media-ratio, 16 / 9);
 }
@@ -864,6 +896,11 @@ button {
 .media-button:hover img,
 .media-button:hover video {
   filter: brightness(0.94);
+}
+
+.media-item-video .media-duration {
+  top: 8px;
+  bottom: auto;
 }
 
 .media-duration {
@@ -1096,6 +1133,7 @@ button {
 
 .quote-author-line {
   min-width: 0;
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1120,6 +1158,25 @@ button {
   flex: 0 0 auto;
   color: var(--muted);
   white-space: nowrap;
+}
+
+.quote-open-link {
+  flex: 0 0 auto;
+  color: var(--quiet);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 18px;
+  text-decoration: none;
+}
+
+.quote-open-link::after {
+  margin-left: 3px;
+  font-size: 10px;
+  content: "↗";
+}
+
+.quote-open-link:hover {
+  color: var(--text);
 }
 
 .quote-text {

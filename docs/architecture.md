@@ -29,7 +29,7 @@ flowchart LR
 - AI operation: `scoring` or `translation`.
 - Configured model: one shared OpenAI model by default, with optional per-operation overrides for scoring and translation.
 - Usage record: one external-call fact line with `provider`, `operation`, model or endpoint, item counts, tokens, quota fields, and timestamp. X usage can include both timeline loading and tweet lookup enrichment.
-- Replay source: saved X-derived run data that produces no new X/OpenAI calls.
+- Replay source: saved X-derived run data that produces no new X API/OpenAI calls.
 - Seen Ledger: local identities of posts already displayed in successful Online selected sets.
 - Timeline Cursor: latest X post id observed by a successful Online timeline fetch.
 - OpenAI Cache: cached OpenAI operation outputs keyed by operation, requested model, prompt version, and source-content fingerprint.
@@ -62,13 +62,28 @@ flowchart LR
 - `src/services/pipeline/progress.ts`: per-refresh progress publishing and usage receipt line collection for pipeline stages.
 - `src/services/pipeline/runAssembly.ts`: final `RefreshRun` stats and trace assembly from completed pipeline stage outputs.
 - `src/services/pipeline/commitRefreshRun.ts`: commit rule for saving completed runs and mutating Online-only state.
+- `src/services/pipeline/refreshCommitJournal.ts`: private atomic undo journal for crash recovery across Run, Seen, and Cursor replacements.
 - `src/services/trace/`: structured run evidence.
 - `src/services/storage/`: persistence abstraction.
+- `src/services/storage/privateJsonFile.ts`: owner-only, serialized, crash-safe JSON reads, atomic replacements, and checkpoint restoration shared by local state repositories.
+- `src/services/linkPreview/safeRequest.ts`: public-network-only HTTP(S) requests with per-hop redirect validation and DNS-pinned connections.
 - `src/server/`: local HTTP server and API routes.
 - `src/server/refreshJobs.ts`: in-memory Pulse job state, progress updates, job response shaping, and completed-run usage decoration.
+- `src/server/requestSecurity.ts`: local Host/origin/fetch-metadata checks plus JSON body limits.
+- `src/server/stateLock.ts`: cross-process exclusive ownership and dead-PID reclamation for mutable server state.
 - `public/`: browser UI.
 - `public/reader/`: small browser-side reader helpers plus X-like link/media treatment, footer action rendering, status/usage presentation, and source/auth display rules used by `public/app.js`.
 - `tests/`: unit tests and test helpers.
+
+## Local Persistence Safety
+
+The app-owned `.data/` directory and newly created dedicated state directories are set to mode `0700`; JSON files are repaired to `0600`. An existing custom parent must already be an owner-only real directory: the app refuses unsafe/shared directories instead of silently chmodding `/tmp`, a project root, or a symlink target. Each replacement writes and syncs a same-directory private temporary file, atomically renames it over the target, then syncs the directory. Durable removal uses unlink plus directory sync. Read-modify-write operations are serialized by absolute path, so concurrent cache updates cannot overwrite one another.
+
+Run, Seen, and Cursor repositories expose logical checkpoints used by an Online undo journal. The journal is atomically persisted before any of those three stores changes and durably removed only after all changes succeed. Ordinary exceptions restore immediately; an uncleared journal after a process exit is restored before the server begins listening. Failed recovery prevents startup and retains the journal for retry.
+
+The server also holds an owner-only `SERVER_STATE_LOCK_PATH` lock for its lifetime. Exclusive creation rejects a second live writer; a dead PID is reclaimed behind an exclusive reclamation gate. Signal-driven shutdown stops accepting connections and waits for both an already-running Pulse and any in-flight request handler (such as OAuth token persistence) to reach their normal boundary; it keeps the writer lock throughout that drain, durably releases it once all writer-capable work is idle, and then exits. This prevents direct server instances, Fresh Pulse audits, and display-inventory cache/token work from concurrently mutating the same product state without leaving a normal-stop lock that could be confused by later PID reuse.
+
+Server and smoke instances can isolate all local repositories with `RUN_STORE_PATH`, `X_TOKEN_STORE_PATH`, `SEEN_POST_STORE_PATH`, `TIMELINE_CURSOR_PATH`, `REFRESH_COMMIT_JOURNAL_PATH`, `OPENAI_CACHE_PATH`, `LINK_PREVIEW_CACHE_PATH`, and `X_RAW_SNAPSHOT_PATH`, plus `SERVER_STATE_LOCK_PATH`; a test instance must never read normal OAuth credentials or recover and clear the normal app's journal.
 
 ## Live Data Flow
 
@@ -83,13 +98,15 @@ flowchart LR
 9. Scoring reads OpenAI Cache entries for quality dimensions, calls OpenAI only for uncached candidates, and adds a local engagement dimension from latest X metrics.
 10. Final selection applies author diversity after weighted ranking, using the reader-facing author. Retweets count as the reposted source author.
 11. Up to 7 selected posts are translated into Chinese and saved, using OpenAI Cache when possible.
-12. The saved successful Online run updates the Seen Ledger and Timeline Cursor.
+12. The Online commit atomically journals Run Store, Seen Ledger, and Timeline Cursor checkpoints, then saves the run and updates both Online state stores. Journal removal is the commit point; errors restore all checkpoints, while process-exit recovery runs before the next server listen.
 13. The pipeline attaches `run.trace`, a structured record of input posts, filter/dedupe/seen decisions, scoring ranks, selection, translation, and the model/prompt configuration used for that refresh.
 14. The browser polls the refresh job to show stage, model, processed item counts, and the refresh action's usage receipt.
 
 Refresh jobs are an in-memory recoverability layer for the current server process. The browser stores the active job id while Pulse is running and reconnects after a page refresh. If the browser loses that id, it asks for the latest running job. If Pulse is clicked again while a job is already running, the server returns the running job instead of starting a second X/OpenAI refresh.
 
-The HTTP server owns routing and dependency wiring. `RefreshJobStore` owns job lifecycle rules: one running job at a time, progress replacement, completed/failed state, commit-after-run ordering, and response shaping that omits full trace data from reader-facing job responses.
+The HTTP server owns routing and dependency wiring. Before it listens and before each new Pulse starts provider work, it restores and clears any unfinished Online commit journal; it refuses to listen or continue the job if recovery is incomplete. `RefreshJobStore` owns job lifecycle rules: one running job at a time, progress replacement, completed/failed state, commit-after-run ordering, and response shaping that omits full trace data from reader-facing job responses. In-memory history is bounded to the 20 most recent jobs, completed jobs do not retain their full trace payload, and `latest()` is tracked directly instead of sorting all history on every poll.
+
+Every HTTP request must use the configured/local hostname and exact server port, which prevents an attacker-controlled DNS name from treating the local API as its origin. Browser POST mutations require an allowed local `Origin` and same-origin Fetch Metadata; owner-run non-browser commands may omit both headers. Pulse creation accepts only `application/json` and caps the body at 16 KiB. OAuth callback origin construction always uses validated local HTTP authority and ignores untrusted forwarded-protocol headers.
 
 ## Replay Data Flow
 
@@ -97,7 +114,7 @@ The HTTP server owns routing and dependency wiring. `RefreshJobStore` owns job l
 2. Server finds the latest saved live X run in the local run store.
 3. Server creates a new `source: "replay"` run from that saved run/trace.
 4. Replay preserves recorded selected posts, scores, translations, and trace evidence.
-5. Replay does not call X, OpenAI, scoring, or translation.
+5. Replay does not call the X API, OpenAI, scoring, or translation.
 6. Replay does not read or write Seen Ledger, Timeline Cursor, Raw X Snapshots, or OpenAI Cache entries.
 7. Replay action usage is empty because no provider request happened during replay.
 
@@ -109,7 +126,7 @@ V1 is designed around X's authenticated home timeline API:
 GET /2/users/{id}/timelines/reverse_chronological
 ```
 
-The project expects OAuth 2.0 user context. `X_USER_ID` and `X_USER_ACCESS_TOKEN` may be configured manually. The local OAuth flow stores user tokens in `.data/x-oauth.json`, which is ignored by git.
+The project expects OAuth 2.0 user context. `X_USER_ID` and `X_USER_ACCESS_TOKEN` may be configured manually. The local OAuth flow stores user tokens in `.data/x-oauth.json`, which is ignored by git. Account priority is deliberately time-stable: a stored OAuth identity takes precedence when its token does not expire or this process can refresh it; refresh failure is shown instead of silently switching to a manual account. When an OAuth token has an expiry but lacks the refresh token/client configuration needed to maintain that identity, complete manual credentials take precedence from the start—even while the old OAuth access token still has time left. This prevents the Reader from labeling one account and later fetching another as the token crosses its refresh window.
 
 The X client requests a broad reader-oriented field profile: tweet URL entities, note-tweet full text, edit metadata, attached media expansions, nested referenced-tweet media expansions, media variants, referenced tweet expansions, author fields, and public metrics. `TimelinePost` stores structured `links`, URL preview metadata, media URL keys, `media`, media playback variants, media duration, and recursive `referencedPost` data so the Reader can avoid naked `t.co` text, render source images/videos inline, autoplay saved video variants, show URL preview cards when preview evidence exists, and show quoted posts as X-like cards.
 
@@ -135,7 +152,7 @@ X API URL entities sometimes include only `url`, `expanded_url`, and `display_ur
 - Cache the result in `.data/link-preview-cache.json` by normalized target URL.
 - Store the resolved preview on the selected post and trace snapshot so Offline replay keeps the same reader-facing card.
 
-This cache is intentionally separate from OpenAI Cache. It does not affect OpenAI scoring or translation fingerprints, and it does not include engagement metrics, ranking weights, selected count, seen policy, or author diversity. X-owned links, X media links, local/private hosts, and links that already have preview metadata are skipped. The Reader turns cached preview evidence into a visible preview card only for ordinary no-attached-media post shapes; posts with attached X image/video media keep additional external URLs inline while the media remains the primary rich object.
+This cache is intentionally separate from OpenAI Cache. It does not affect OpenAI scoring or translation fingerprints, and it does not include engagement metrics, ranking weights, selected count, seen policy, or author diversity. X-owned links, X media links, local/private hosts, and links that already have preview metadata are skipped. Every redirect hop is parsed and DNS-resolved again; any local, private, link-local, metadata, special-use, IPv4-mapped, or mixed public/private answer rejects the preview. The actual connection is pinned to the already validated address to prevent DNS rebinding between validation and connect. Cached metadata image URLs—including old cache entries—are never placed directly in browser `src`; the same-origin `/api/link-preview/image` endpoint revalidates and pins every redirect, accepts only bounded raster image responses, and rejects SVG/non-image content. Both network proxy endpoints reject cross-site browser embeds through Fetch Metadata, preventing an unrelated web page from turning the local Reader into a bandwidth/memory relay. The Reader turns cached preview evidence into a visible preview card only for ordinary no-attached-media post shapes; posts with attached X image/video media keep additional external URLs inline while the media remains the primary rich object.
 
 ## Media Proxy Strategy
 
@@ -145,7 +162,7 @@ The Reader stores original X media URLs, but browser playback for `https://video
 GET /api/media/proxy?url=https%3A%2F%2Fvideo.twimg.com%2F...
 ```
 
-The proxy only allows `https://video.twimg.com` URLs, forwards the browser `Range` header, streams the upstream response, and returns video headers such as `content-range` and `accept-ranges`. Inline videos and the media viewer use this same-origin proxy URL for playback while the saved run still keeps the original X-derived media variant URL.
+The proxy only allows `https://video.twimg.com` URLs, forwards the browser `Range` header, streams the upstream response, and returns video headers such as `content-range` and `accept-ranges`. Inline videos and the media viewer use this same-origin proxy URL for playback while the saved run still keeps the original X-derived media variant URL. X timeline, tweet lookup, authenticated-user, OAuth-token, and media requests all have explicit timeouts; `X_REQUEST_TIMEOUT_MS` and `MEDIA_REQUEST_TIMEOUT_MS` can override their conservative defaults.
 
 ## AI Strategy
 
@@ -158,7 +175,7 @@ There is no local AI fallback in the live path. Scoring and translation batches 
 
 OpenAI Cache stores operation outputs, not final ranking decisions. Cache keys include operation, requested model, prompt version, and a source-content fingerprint. They exclude engagement metrics, weights, Top count, author diversity, and seen policy. This lets Online Pulse reuse OpenAI quality judgments and translations while recalculating latest engagement and selection rules.
 
-OpenAI scoring sees reader-facing post content and referenced-post content. For retweets, the prompt sends the reposted source post as the content and includes the reposting account only as timeline context. It does not receive X engagement metrics. The local scoring layer adds the `互动信号` dimension from latest X metrics after OpenAI returns `立即值得看` and `信息密度`; for retweets, those metrics come from the reposted source post.
+OpenAI scoring sees reader-facing post content and recursive referenced-post context. For retweets, the prompt sends the reposted source post as the content, preserves any quote nested inside that source, and includes the reposting account only as timeline context. It does not receive X engagement metrics. The local scoring layer adds the `互动信号` dimension from latest X metrics after OpenAI returns `立即值得看` and `信息密度`; for retweets, those metrics come from the reposted source post.
 
 OpenAI translation follows the same reader-facing rule. For retweets, it translates the reposted source post and returns the selected timeline item id so the saved run remains tied to the selected item.
 
@@ -170,13 +187,13 @@ If a scoring or translation response only omits ids, the operation may make one 
 
 ## Replay Strategy
 
-Replay is the only local data path. It reads saved local X-derived run data, currently from `.data/runs.json`, and creates a new `source: "replay"` run without calling X or OpenAI. Replay preserves recorded selected posts, scores, translations, and trace evidence. Its per-action usage is empty because no new provider request happened.
+Replay is the only local data path. It reads saved local X-derived run data, currently from `.data/runs.json`, and creates a new `source: "replay"` run without calling the X API or OpenAI. Replay preserves recorded selected posts, scores, translations, and trace evidence. Its per-action usage is empty because no new provider request happened. The Reader may still retrieve saved image/video URLs from X CDNs; `Offline` describes the data source, not an air-gapped media cache.
 
 Replay chooses the latest saved live X run as its source. If no live X run exists, replay fails and asks for one live X refresh first. Saved run/trace files under `.data/` can be edited to change replayed data. These files are ignored by git and may contain private timeline data.
 
 The file run repository caps stored history but preserves the latest `source: "x"` run when replay entries roll over. This keeps offline replay anchored to a real X-derived source and prevents repeated local replay actions from deleting the only high-fidelity live sample.
 
-Each external call is recorded as a `UsageRecord`, which acts as a usage receipt line. OpenAI records include provider, operation, actual response model, item count, item ids, input tokens, output tokens, total tokens, cached input tokens, and reasoning tokens when available. X API records include provider, endpoint, method, returned item count, item ids, and rate-limit metadata when available. Refresh uses background jobs plus polling for progress. Scoring is processed in batches instead of one request per post, so the UI can show real batch progress without multiplying request overhead.
+Provider operations emit `UsageRecord` receipt lines when provider usage data is available. OpenAI scoring/translation records include provider, operation, actual response model, item count, item ids, input tokens, output tokens, total tokens, cached input tokens, and reasoning tokens returned by the final Responses call. X timeline/lookup records include provider, endpoint, method, total/failed request counts, returned item count, item ids, and rate-limit metadata when available. Failed pagination/lookup attempts and a failed `since_id` attempt before baseline fallback therefore remain visible instead of disappearing from the receipt. Low-level OpenAI transport retries and OAuth maintenance calls are not currently separate receipt lines. Refresh uses background jobs plus polling for progress. Scoring is processed in batches instead of one request per post, so the UI can show real batch progress without multiplying request overhead.
 
 Usage records are grouped into action-level `UsageReceipt` objects for API responses and UI rendering. A refresh receipt aggregates X timeline loading, scoring batches, and translation batches for that one refresh. The app does not sum usage across different refreshes. Receipts are computed from stored lines rather than treated as a separate global ledger.
 

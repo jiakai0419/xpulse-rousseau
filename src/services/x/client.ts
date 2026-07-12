@@ -1,4 +1,5 @@
 import type { Author, TimelinePost, UsageRecord } from "../../domain/tweet.ts";
+import { DEFAULT_X_REQUEST_TIMEOUT_MS, fetchTextWithTimeout } from "../http/fetchWithTimeout.ts";
 import type { XMeResponse, XTimelineResponse } from "./apiTypes.ts";
 import { enrichMissingReferencedPosts } from "./enrichment.ts";
 import {
@@ -19,6 +20,7 @@ export type XTimelineClientOptions = {
   targetResults?: number;
   maxPages?: number;
   sinceId?: string;
+  requestTimeoutMs?: number;
   onRawSnapshot?: (snapshot: XRawTimelineSnapshot) => void | Promise<void>;
   onUsage?: (usage: UsageRecord) => void;
 };
@@ -53,12 +55,18 @@ async function fetchTimelinePage(options: XTimelineClientOptions, params: {
 }): Promise<{ posts: TimelinePost[]; nextToken?: string; rateLimit?: UsageRecord["rateLimit"]; status: number }> {
   const url = buildTimelineUrl(options, params);
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${options.accessToken}`,
+  const { response, text: responseText } = await fetchTextWithTimeout(
+    url,
+    {
+      headers: {
+        Authorization: `Bearer ${options.accessToken}`,
+      },
     },
-  });
-  const responseText = await response.text();
+    {
+      label: "X timeline request",
+      timeoutMs: options.requestTimeoutMs ?? DEFAULT_X_REQUEST_TIMEOUT_MS,
+    },
+  );
   let payload: XTimelineResponse | { raw: string } = {};
 
   try {
@@ -98,82 +106,103 @@ export async function fetchHomeTimeline(options: XTimelineClientOptions): Promis
   const maxPages = Math.min(Math.max(options.maxPages ?? 3, 1), 5);
   const fetchedPosts: TimelinePost[] = [];
   let requestCount = 0;
+  let failedRequestCount = 0;
   let latestRateLimit: UsageRecord["rateLimit"];
+  let posts: TimelinePost[] = [];
 
-  if (options.sinceId) {
-    try {
-      const page = await fetchTimelinePage(options, {
-        maxResults: pageSize,
-        sinceId: options.sinceId,
-        page: 1,
-        mode: "newer",
-      });
+  try {
+    if (options.sinceId) {
       requestCount += 1;
-      latestRateLimit = page.rateLimit;
-      fetchedPosts.push(...page.posts);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
 
-      if (!message.includes("X timeline request failed with 400")) {
+      try {
+        const page = await fetchTimelinePage(options, {
+          maxResults: pageSize,
+          sinceId: options.sinceId,
+          page: 1,
+          mode: "newer",
+        });
+        latestRateLimit = page.rateLimit;
+        fetchedPosts.push(...page.posts);
+      } catch (error) {
+        failedRequestCount += 1;
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (!message.includes("X timeline request failed with 400")) {
+          throw error;
+        }
+      }
+    }
+
+    let paginationToken: string | undefined;
+
+    for (let pageIndex = 1; uniquePosts(fetchedPosts).length < targetResults && pageIndex <= maxPages; pageIndex += 1) {
+      requestCount += 1;
+
+      try {
+        const page = await fetchTimelinePage(options, {
+          maxResults: pageSize,
+          paginationToken,
+          page: pageIndex,
+          mode: "baseline",
+        });
+        latestRateLimit = page.rateLimit;
+        fetchedPosts.push(...page.posts);
+        paginationToken = page.nextToken;
+
+        if (!paginationToken) {
+          break;
+        }
+      } catch (error) {
+        failedRequestCount += 1;
         throw error;
       }
     }
-  }
 
-  let paginationToken: string | undefined;
+    posts = uniquePosts(fetchedPosts).slice(0, targetResults);
+  } finally {
+    posts = uniquePosts(fetchedPosts).slice(0, targetResults);
 
-  for (let pageIndex = 1; uniquePosts(fetchedPosts).length < targetResults && pageIndex <= maxPages; pageIndex += 1) {
-    const page = await fetchTimelinePage(options, {
-      maxResults: pageSize,
-      paginationToken,
-      page: pageIndex,
-      mode: "baseline",
-    });
-    requestCount += 1;
-    latestRateLimit = page.rateLimit;
-    fetchedPosts.push(...page.posts);
-    paginationToken = page.nextToken;
-
-    if (!paginationToken) {
-      break;
+    if (requestCount) {
+      options.onUsage?.({
+        provider: "x",
+        operation: "x.timeline",
+        label: "X timeline",
+        method: "GET",
+        endpoint: X_TIMELINE_ENDPOINT,
+        itemCount: posts.length,
+        itemIds: posts.map((post) => post.id),
+        requestCount,
+        failedRequestCount: failedRequestCount || undefined,
+        rateLimit: latestRateLimit,
+        createdAt: new Date().toISOString(),
+      });
     }
   }
-
-  const posts = uniquePosts(fetchedPosts).slice(0, targetResults);
-
-  options.onUsage?.({
-    provider: "x",
-    operation: "x.timeline",
-    label: "X timeline",
-    method: "GET",
-    endpoint: X_TIMELINE_ENDPOINT,
-    itemCount: posts.length,
-    itemIds: posts.map((post) => post.id),
-    requestCount,
-    rateLimit: latestRateLimit,
-    createdAt: new Date().toISOString(),
-  });
 
   await enrichMissingReferencedPosts(options, posts);
 
   return posts;
 }
 
-export async function fetchAuthenticatedUser(accessToken: string): Promise<Author> {
+export async function fetchAuthenticatedUser(accessToken: string, requestTimeoutMs = DEFAULT_X_REQUEST_TIMEOUT_MS): Promise<Author> {
   const url = new URL("https://api.x.com/2/users/me");
   url.searchParams.set("user.fields", "name,username,profile_image_url");
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
+  const { response, text: responseText } = await fetchTextWithTimeout(
+    url,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
     },
-  });
+    { label: "X authenticated user request", timeoutMs: requestTimeoutMs },
+  );
 
   if (!response.ok) {
-    throw new Error(`X authenticated user request failed with ${response.status}: ${await response.text()}`);
+    throw new Error(`X authenticated user request failed with ${response.status}: ${responseText}`);
   }
 
-  const payload = await response.json() as XMeResponse;
+  const payload = JSON.parse(responseText) as XMeResponse;
 
   if (!payload.data) {
     throw new Error("X authenticated user response did not include user data.");

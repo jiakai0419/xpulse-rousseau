@@ -19,7 +19,7 @@ The app has two data paths:
 
 There is no silent fallback in the live path. If X or OpenAI fails, the action fails visibly. Scoring and translation require complete structured responses for every input id.
 
-Replay does not call X or OpenAI. It reuses recorded posts, scores, translations, and trace evidence from a saved live X run. Its per-action usage is empty because no provider request happened during replay.
+Replay does not call the X API or OpenAI. It reuses recorded posts, scores, translations, and trace evidence from a saved live X run. Its per-action usage is empty because no provider request happened during replay. Reader media may still load from saved X CDN URLs.
 
 The project should not introduce a separate mock/sample/test-fixture source. Automated smoke checks use replay from saved live X runs. Unit tests may stub provider responses, but they should not add another product source mode.
 

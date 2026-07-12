@@ -4,7 +4,8 @@ import type { RefreshRun, TimelinePost } from "../src/domain/tweet.ts";
 import { FileLinkPreviewCacheRepository } from "../src/services/linkPreview/cache.ts";
 import { enrichSelectedPostLinkPreviews } from "../src/services/linkPreview/enrich.ts";
 import { loadDotEnv } from "../src/server/env.ts";
-import { getHost } from "./env-utils.mjs";
+import { acquireServerStateLock } from "../src/server/stateLock.ts";
+import { findAvailablePort, getHost } from "./env-utils.mjs";
 import {
   auditRunFromSamples,
   buildDisplayGapInventoryReport,
@@ -41,7 +42,9 @@ const enrichXArticlePreviews = process.env.DISPLAY_INVENTORY_X_ARTICLE_PREVIEWS 
 const originalEvidenceStorePath = process.env.DISPLAY_INVENTORY_ORIGINAL_EVIDENCE_STORE || ".data/display-original-evidence/original-evidence-store.json";
 const localBrowserChannel = process.env.DISPLAY_INVENTORY_BROWSER_CHANNEL || "chrome";
 const host = getHost();
-const port = positiveInt(process.env.DISPLAY_INVENTORY_PORT, 3700);
+const port = process.env.DISPLAY_INVENTORY_PORT
+  ? positiveInt(process.env.DISPLAY_INVENTORY_PORT, 3700)
+  : await findAvailablePort(getHost());
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outputDir = process.env.DISPLAY_INVENTORY_DIR || `.data/display-gap-inventory/display-gap-${timestamp}`;
 const localRunStorePath = join(outputDir, "inventory-runs.json");
@@ -151,7 +154,16 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+let stateLock;
+
+try {
+  stateLock = await acquireServerStateLock(process.env.SERVER_STATE_LOCK_PATH, {
+    instanceId: `display_inventory_${process.pid}`,
+  });
+  await main();
+} catch (error) {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
-});
+} finally {
+  await stateLock?.release();
+}

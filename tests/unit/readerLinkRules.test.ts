@@ -2,13 +2,24 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   findTokenRanges,
+  isReferencedStatusLink,
   linkDisplayLabel,
   linkShouldAppearInText,
   linkTreatment,
   normalizedPostLinks,
+  proxiedLinkPreviewImageUrl,
   textWithoutHiddenPostLinks,
   textWithoutPostLinks,
+  xStatusId,
 } from "../../public/reader/linkRules.js";
+
+test("link preview images always use the same-origin safe proxy", () => {
+  assert.equal(
+    proxiedLinkPreviewImageUrl({ url: "https://images.example/card.jpg?size=large" }),
+    "/api/link-preview/image?url=https%3A%2F%2Fimages.example%2Fcard.jpg%3Fsize%3Dlarge",
+  );
+  assert.equal(proxiedLinkPreviewImageUrl({ url: "data:image/svg+xml,bad" }), "");
+});
 
 test("normalizedPostLinks dedupes X entities and adds raw text links", () => {
   const post = {
@@ -81,6 +92,37 @@ test("linkTreatment hides media links and quote status links", () => {
 
   assert.equal(linkTreatment(mediaPost, mediaPost.links[0]), "media");
   assert.equal(linkTreatment(quotedPost, quoteLink), "quote");
+});
+
+test("quote treatment matches the actual referenced status id only", () => {
+  const quoteLink = {
+    url: "https://t.co/quote",
+    expandedUrl: "https://twitter.com/source/status/123?ref=post",
+  };
+  const unrelatedStatusLink = {
+    url: "https://t.co/other",
+    expandedUrl: "https://x.com/other/status/456",
+  };
+  const post = {
+    text: "Compare https://t.co/other with https://t.co/quote",
+    referencedPostType: "quoted",
+    referencedPostId: "123",
+    links: [unrelatedStatusLink, quoteLink],
+  };
+
+  assert.equal(isReferencedStatusLink(post, quoteLink), true);
+  assert.equal(isReferencedStatusLink(post, unrelatedStatusLink), false);
+  assert.equal(linkTreatment(post, quoteLink), "quote");
+  assert.equal(linkTreatment(post, unrelatedStatusLink), "inline");
+  assert.equal(textWithoutHiddenPostLinks(post.text, post), "Compare https://t.co/other with");
+});
+
+test("quote treatment does not guess when referenced identity is missing", () => {
+  const link = { expandedUrl: "https://x.com/someone/status/789" };
+
+  assert.equal(isReferencedStatusLink({ referencedPostType: "quoted" }, link), false);
+  assert.equal(xStatusId("https://www.x.com/someone/status/789/photo/1"), "789");
+  assert.equal(xStatusId("https://example.com/status/789"), "");
 });
 
 test("linkTreatment renders ordinary previews only when attached media is absent", () => {

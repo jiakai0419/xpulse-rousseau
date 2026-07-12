@@ -139,7 +139,7 @@ test("assembleRefreshRun builds stats and preserves selected preview evidence in
   });
   assert.deepEqual(run.trace?.config.batches, { scoring: 20, translation: 10 });
   assert.deepEqual(run.trace?.config.promptVersions, {
-    scoring: "scoring-v2",
+    scoring: "scoring-v3",
     translation: "translation-v2",
   });
   assert.equal(run.trace?.decisions.find((decision) => decision.postId === "duplicate")?.state, "duplicate_excluded");

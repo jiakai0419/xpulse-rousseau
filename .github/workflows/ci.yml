@@ -6,10 +6,18 @@ on:
       - "**"
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Unit and environment checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
@@ -26,6 +34,15 @@ jobs:
 
       - name: Environment check
         run: npm run env:check
+
+      - name: Type-check application source
+        run: npm run typecheck
+
+      - name: Check tracked files for credential-shaped secrets
+        run: npm run security:secrets
+
+      - name: Execute isolated HTTP entry point
+        run: npm run test:server-entry
 
       - name: Unit tests
         run: npm run test:unit

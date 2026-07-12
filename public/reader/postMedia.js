@@ -39,16 +39,26 @@ export function renderPostMedia(post) {
     const caption = item.altText ?? "";
     const openLabel = `Open media ${index + 1} of ${count}`;
     const durationLabel = isVideo ? formatMediaDuration(item.durationMs) : "";
-    const mediaElement =
-      isVideo && videoUrl
-        ? `<video src="${escapeHtml(videoUrl)}" poster="${escapeHtml(url)}" muted autoplay playsinline loop preload="auto" aria-label="${escapeHtml(label)}"></video>`
-        : `<img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" />`;
+    const loopAttribute = item.type === "animated_gif" ? " loop" : "";
+    const viewerData = `data-media-index="${escapeHtml(index)}" data-media-type="${escapeHtml(item.type)}" data-media-src="${escapeHtml(url)}" data-media-full-src="${escapeHtml(fullUrl)}" data-media-video-src="${escapeHtml(videoUrl)}" data-media-alt="${escapeHtml(label)}" data-media-caption="${escapeHtml(caption)}"`;
+    const mediaElement = isVideo && videoUrl
+      ? `
+        <div class="media-video-shell">
+          <video data-inline-video-src="${escapeHtml(videoUrl)}" poster="${escapeHtml(url)}" muted playsinline${loopAttribute} controls preload="none" aria-label="${escapeHtml(label)}"></video>
+          <button class="media-button media-video-expand media-viewer-trigger" type="button" aria-label="${escapeHtml(openLabel)}" ${viewerData}>
+            <span aria-hidden="true">↗</span>
+          </button>
+        </div>
+      `
+      : `
+        <button class="media-button media-viewer-trigger" type="button" aria-label="${escapeHtml(openLabel)}" ${viewerData}>
+          <img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" />
+        </button>
+      `;
 
     return `
-      <figure class="media-item" style="--media-ratio: ${mediaAspectRatio(item)}; --media-ratio-value: ${mediaAspectRatioValue(item)}">
-        <div class="media-button" role="button" tabindex="0" aria-label="${escapeHtml(openLabel)}" data-media-index="${escapeHtml(index)}" data-media-type="${escapeHtml(item.type)}" data-media-src="${escapeHtml(url)}" data-media-full-src="${escapeHtml(fullUrl)}" data-media-video-src="${escapeHtml(videoUrl)}" data-media-alt="${escapeHtml(label)}" data-media-caption="${escapeHtml(caption)}">
-          ${mediaElement}
-        </div>
+      <figure class="media-item${isVideo ? " media-item-video" : ""}" style="--media-ratio: ${mediaAspectRatio(item)}; --media-ratio-value: ${mediaAspectRatioValue(item)}">
+        ${mediaElement}
         ${durationLabel ? `<span class="media-duration">${escapeHtml(durationLabel)}</span>` : ""}
       </figure>
     `;

@@ -16,6 +16,8 @@ test("normalizes data paths before classification", () => {
 test("classifies local data by retention category", () => {
   assert.equal(classifyDataPath(".data/runs.json").category, "product-state");
   assert.equal(classifyDataPath(".data/openai-cache.json").category, "product-state");
+  assert.equal(classifyDataPath(".data/refresh-commit-journal.json").category, "product-state");
+  assert.equal(classifyDataPath(".data/server-state.lock").category, "product-state");
   assert.equal(classifyDataPath(".data/display-gap-inventory/display-gap-baseline-225-2026-06-14/report.json").category, "canonical-evidence");
   assert.equal(classifyDataPath(".data/display-original-evidence/original-evidence-store.json").category, "canonical-evidence");
   assert.equal(classifyDataPath(".data/display-visual-review/visual-review-2026-06-15/report.md").category, "evidence-report");

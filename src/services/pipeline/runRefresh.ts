@@ -1,12 +1,13 @@
 import type { RefreshProgress, RefreshRun, TimelinePost, UsageRecord } from "../../domain/tweet.ts";
 import { configuredOpenAIModels } from "../../config/openai.ts";
 import { selectedPostCountFromEnv } from "../../config/selection.ts";
+import { DEFAULT_X_REQUEST_TIMEOUT_MS } from "../http/fetchWithTimeout.ts";
 import type { LinkPreviewCacheRepository } from "../linkPreview/cache.ts";
 import type { OpenAICacheRepository } from "../openai/cache.ts";
 import type { SeenPostRepository } from "../seen/seenLedger.ts";
 import { fetchHomeTimeline } from "../x/client.ts";
-import { buildXOAuthConfig, getFreshStoredXTokens } from "../x/oauth.ts";
-import type { XRawSnapshotRepository } from "../x/rawSnapshotStore.ts";
+import type { XRawSnapshotRepository, XRawTimelineSnapshot } from "../x/rawSnapshotStore.ts";
+import { resolveFreshXCredentials } from "../x/sourceCredentials.ts";
 import type { TimelineCursorRepository } from "../x/timelineCursor.ts";
 import type { XTokenStore } from "../x/tokenStore.ts";
 import { prepareCandidatePosts } from "./candidates.ts";
@@ -63,37 +64,23 @@ async function loadTimeline(options: RunRefreshOptions): Promise<{ source: "x"; 
     maxResults: positiveIntegerFromEnv(env, "X_TIMELINE_PAGE_SIZE", 100),
     targetResults: positiveIntegerFromEnv(env, "X_TIMELINE_TARGET_POSTS", 100),
     maxPages: positiveIntegerFromEnv(env, "X_TIMELINE_MAX_PAGES", 3),
+    requestTimeoutMs: positiveIntegerFromEnv(env, "X_REQUEST_TIMEOUT_MS", DEFAULT_X_REQUEST_TIMEOUT_MS),
     sinceId: cursor?.latestPostId,
-    onRawSnapshot: (snapshot) => options.xRawSnapshotRepository?.save(snapshot),
+    onRawSnapshot: (snapshot: XRawTimelineSnapshot) => options.xRawSnapshotRepository?.save(snapshot),
     onUsage: options.onUsage,
   };
 
-  if (env.X_USER_ID && env.X_USER_ACCESS_TOKEN) {
-    return {
-      source: "x",
-      posts: await fetchHomeTimeline({
-        userId: env.X_USER_ID,
-        accessToken: env.X_USER_ACCESS_TOKEN,
-        ...fetchOptions,
-      }),
-    };
-  }
+  const credentials = await resolveFreshXCredentials(env, options.xTokenStore, options.now);
 
-  if (!options.xTokenStore) {
+  if (!credentials) {
     throw new Error("X credentials are required for live refresh. Connect X or set X_USER_ID and X_USER_ACCESS_TOKEN.");
-  }
-
-  const tokens = await getFreshStoredXTokens(options.xTokenStore, buildXOAuthConfig(env));
-
-  if (!tokens?.accessToken || !tokens.user?.id) {
-    throw new Error("Stored X OAuth credentials are missing. Connect X before live refresh.");
   }
 
   return {
     source: "x",
     posts: await fetchHomeTimeline({
-      userId: tokens.user.id,
-      accessToken: tokens.accessToken,
+      userId: credentials.userId,
+      accessToken: credentials.accessToken,
       ...fetchOptions,
     }),
   };

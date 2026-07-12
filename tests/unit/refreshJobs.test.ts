@@ -225,3 +225,50 @@ test("RefreshJobStore marks failures and preserves the last recorded usage progr
   assert.equal(job.progress.detail, "OpenAI timed out");
   assert.deepEqual(job.progress.usage, [usage]);
 });
+
+test("RefreshJobStore exposes an idle boundary for graceful server shutdown", async () => {
+  const store = createTestStore();
+  const pendingRun = deferred<RefreshRun>();
+  const job = store.start("x", {
+    run: async () => pendingRun.promise,
+    commit: async () => {},
+  });
+  let becameIdle = false;
+  const idle = store.whenIdle().then(() => {
+    becameIdle = true;
+  });
+
+  await setTimeout(0);
+  assert.equal(becameIdle, false);
+
+  pendingRun.resolve(testRun());
+  await idle;
+  assert.equal(job.status, "completed");
+  assert.equal(becameIdle, true);
+  await store.whenIdle();
+});
+
+test("RefreshJobStore keeps bounded recent history and drops retained trace payloads", async () => {
+  let id = 0;
+  const store = new RefreshJobStore({
+    maxRetainedJobs: 2,
+    createJobId: () => `bounded-${++id}`,
+    now: () => new Date(`2026-06-08T00:0${id}:00.000Z`),
+  });
+  const jobs: RefreshJob[] = [];
+
+  for (let index = 1; index <= 3; index += 1) {
+    const job = store.start("x", {
+      run: async () => testRun({ id: `bounded-run-${index}`, trace: testTrace(`bounded-run-${index}`) }),
+      commit: async () => {},
+    });
+    jobs.push(job);
+    await waitForStatus(job, "completed");
+  }
+
+  assert.equal(store.get(jobs[0].id), undefined);
+  assert.equal(store.get(jobs[1].id), jobs[1]);
+  assert.equal(store.get(jobs[2].id), jobs[2]);
+  assert.equal(store.latest(), jobs[2]);
+  assert.equal(Object.hasOwn(jobs[2].run ?? {}, "trace"), false);
+});

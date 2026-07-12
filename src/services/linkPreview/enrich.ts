@@ -1,11 +1,22 @@
+import { isIP } from "node:net";
 import type { PostLink, PostLinkPreview, ReferencedPost, TimelinePost } from "../../domain/tweet.ts";
 import { linkPreviewCacheKey, normalizedPreviewTargetUrl, type LinkPreviewCacheRepository } from "./cache.ts";
+import {
+  isBlockedLinkPreviewAddress,
+  isBlockedLinkPreviewHostname,
+  requestLinkPreviewFromValidatedAddress,
+  validatedLinkPreviewAddresses,
+  type LinkPreviewHostnameResolver,
+  type LinkPreviewRequester,
+} from "./safeRequest.ts";
 
 type FetchLike = typeof fetch;
 
 export type LinkPreviewEnrichmentOptions = {
   cache: LinkPreviewCacheRepository;
   fetcher?: FetchLike;
+  resolveHostname?: LinkPreviewHostnameResolver;
+  requester?: LinkPreviewRequester;
   now?: Date;
   timeoutMs?: number;
   maxBytes?: number;
@@ -30,36 +41,6 @@ function previewTarget(link: PostLink): string | undefined {
     .find((candidate): candidate is string => Boolean(candidate && normalizedPreviewTargetUrl(candidate)));
 }
 
-function isPrivateIpv4(hostname: string): boolean {
-  const parts = hostname.split(".").map((part) => Number(part));
-
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
-    return false;
-  }
-
-  const [first, second] = parts;
-
-  return (
-    first === 10 ||
-    first === 127 ||
-    first === 0 ||
-    (first === 169 && second === 254) ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168)
-  );
-}
-
-function isBlockedHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, "").replace(/^www\./, "").toLowerCase();
-
-  return (
-    host === "localhost" ||
-    host === "::1" ||
-    host.endsWith(".local") ||
-    isPrivateIpv4(host)
-  );
-}
-
 function isXOwnedUrl(rawUrl: string): boolean {
   try {
     const url = new URL(rawUrl);
@@ -82,8 +63,9 @@ function shouldFetchPreview(link: PostLink, targetUrl: string): boolean {
 
   try {
     const url = new URL(targetUrl);
+    const hostname = url.hostname.replace(/^\[|\]$/g, "");
 
-    if (isBlockedHost(url.hostname)) {
+    if (isBlockedLinkPreviewHostname(hostname) || (isIP(hostname) > 0 && isBlockedLinkPreviewAddress(hostname))) {
       return false;
     }
   } catch {
@@ -158,7 +140,8 @@ function absoluteUrl(rawUrl: string | undefined, baseUrl: string): string | unde
   }
 
   try {
-    return new URL(rawUrl, baseUrl).toString();
+    const url = new URL(rawUrl, baseUrl);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
   } catch {
     return undefined;
   }
@@ -224,6 +207,7 @@ async function responseTextWithinLimit(response: Response, maxBytes: number): Pr
   const contentLength = Number(response.headers.get("content-length"));
 
   if (Number.isFinite(contentLength) && contentLength > maxBytes * 3) {
+    await response.body?.cancel().catch(() => undefined);
     return "";
   }
 
@@ -255,25 +239,57 @@ async function responseTextWithinLimit(response: Response, maxBytes: number): Pr
   }
 }
 
-async function fetchPreviewHtml(rawUrl: string, options: Required<Pick<LinkPreviewEnrichmentOptions, "fetcher" | "timeoutMs" | "maxBytes">>): Promise<ResolvedPreview> {
+function abortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason ?? new Error("Link preview request aborted"));
+  }
+
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason ?? new Error("Link preview request aborted"));
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+async function fetchPreviewHtml(rawUrl: string, options: {
+  fetcher?: FetchLike;
+  maxBytes: number;
+  requester?: LinkPreviewRequester;
+  resolveHostname?: LinkPreviewHostnameResolver;
+  timeoutMs: number;
+}): Promise<ResolvedPreview> {
   let currentUrl = rawUrl;
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(new Error("Link preview request timed out")), options.timeoutMs);
 
     try {
-      const response = await options.fetcher(currentUrl, {
-        redirect: "manual",
-        signal: controller.signal,
-        headers: {
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Xpulse/1.0 Safari/537.36",
-        },
-      });
+      const addresses = await abortable(
+        validatedLinkPreviewAddresses(currentUrl, options.resolveHostname),
+        controller.signal,
+      );
+      const headers = {
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Xpulse/1.0 Safari/537.36",
+      };
+      const response = options.requester
+        ? await options.requester(currentUrl, { addresses, headers, signal: controller.signal })
+        : options.fetcher
+          ? await options.fetcher(currentUrl, {
+            redirect: "manual",
+            signal: controller.signal,
+            headers,
+          })
+          : await requestLinkPreviewFromValidatedAddress(currentUrl, {
+            addresses,
+            headers,
+            signal: controller.signal,
+          });
 
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get("location");
+        await response.body?.cancel().catch(() => undefined);
 
         if (!location) {
           return {};
@@ -291,10 +307,11 @@ async function fetchPreviewHtml(rawUrl: string, options: Required<Pick<LinkPrevi
       const contentType = response.headers.get("content-type") ?? "";
 
       if (!response.ok || !/text\/html|application\/xhtml\+xml/i.test(contentType)) {
-        return { finalUrl: response.url || currentUrl };
+        await response.body?.cancel().catch(() => undefined);
+        return { finalUrl: currentUrl };
       }
 
-      const finalUrl = response.url || currentUrl;
+      const finalUrl = currentUrl;
       const html = await responseTextWithinLimit(response, options.maxBytes);
 
       return {
@@ -333,7 +350,9 @@ async function resolveLinkPreview(link: PostLink, options: LinkPreviewEnrichment
   }
 
   const resolved = await fetchPreviewHtml(targetUrl, {
-    fetcher: options.fetcher ?? fetch,
+    fetcher: options.fetcher,
+    requester: options.requester,
+    resolveHostname: options.resolveHostname,
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
   });

@@ -21,14 +21,24 @@ export function metricIcon(name) {
   `;
 }
 
-export function formatSignalScore(value) {
+export function signalTotalScale(score) {
+  const declaredScale = score?.totalScale ?? score?.format?.totalScale ?? score?.scale;
+
+  if (declaredScale === 10 || declaredScale === "0-10") {
+    return 10;
+  }
+
+  return 100;
+}
+
+export function formatSignalScore(value, scale = 100) {
   const numeric = Number(value);
 
   if (!Number.isFinite(numeric)) {
     return "0.0";
   }
 
-  const normalized = numeric > 10 ? numeric / 10 : numeric;
+  const normalized = scale === 10 ? numeric : numeric / 10;
   const clamped = Math.max(0, Math.min(10, normalized));
 
   return clamped.toFixed(1);
@@ -51,7 +61,7 @@ export function renderSignal(score) {
     })
     .join("");
 
-  const totalScore = formatSignalScore(score.total);
+  const totalScore = formatSignalScore(score.total, signalTotalScale(score));
 
   return `
     <div class="signal-details">

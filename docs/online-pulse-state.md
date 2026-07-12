@@ -9,6 +9,7 @@ All stores live under `.data/` and are ignored by git.
 - Run Store, `.data/runs.json`: saved reader runs, selected posts, translations, usage, and run trace.
 - Seen Ledger, `.data/seen-posts.json`: identities of posts already shown in successful Online selected sets.
 - Timeline Cursor, `.data/timeline-cursor.json`: newest post id seen by a successful Online timeline fetch.
+- Commit Journal, `.data/refresh-commit-journal.json`: temporary pre-commit checkpoints used only while an Online Run/Seen/Cursor commit is unfinished.
 - OpenAI Cache, `.data/openai-cache.json`: cached OpenAI operation outputs for scoring and translation.
 - Raw X Snapshots, `.data/x-snapshots.json`: recent raw X timeline page responses and request metadata.
 
@@ -27,13 +28,19 @@ All stores live under `.data/` and are ignored by git.
 11. Rank by weighted dimensions.
 12. Apply author diversity after ranking: keep at most one final selected post per reader-facing author. Retweets count as the reposted source author.
 13. Read OpenAI Cache entries for selected translations and call OpenAI only for uncached translations.
-14. Save the run, then mark selected posts as seen and update the Timeline Cursor.
+14. Checkpoint the Run Store, Seen Ledger, and Timeline Cursor and atomically persist those checkpoints in the Commit Journal.
+15. Save the run, mark selected posts as seen, and update the cursor.
+16. Durably remove the Commit Journal only after all three writes succeed; this removal is the commit point.
 
-The Seen Ledger and Timeline Cursor are updated only after a successful Online run has been saved. A failed run should not make posts disappear from future results.
+Each JSON replacement is atomic, and the journal is persisted before the first product-state mutation. If any step throws, the coordinator restores all three stores in reverse order. It clears the journal only after compensation succeeds; a restore or clear failure leaves the journal available for another recovery attempt.
+
+Before the HTTP server starts listening, and again before any new Pulse performs provider work, it checks for an unfinished journal. If one exists—even if the previous process exited between any two file renames—it restores all three pre-commit checkpoints and durably clears the journal. A recovery or journal-clear failure prevents startup or fails that job immediately rather than serving or spending against ambiguous state. Replay only saves its run and never joins this Online-state transaction, and no replay save may proceed while a journal remains pending.
+
+The server holds `.data/server-state.lock` while running. A second process cannot become another Online state writer while the recorded PID is alive. A dead owner is reclaimed safely on startup. Replay/API/UI smoke and local-rendering child servers receive isolated state and lock paths; Fresh Pulse audit intentionally writes the real product state, so it must acquire the real lock and refuses to run beside another server.
 
 ## Offline Flow
 
-Offline is local replay. It does not call X or OpenAI, does not read or write the Seen Ledger, does not update the Timeline Cursor, and does not refresh OpenAI Cache entries. It simply replays saved X-derived run evidence.
+Offline is local replay. It does not call the X API or OpenAI, does not read or write the Seen Ledger, does not update the Timeline Cursor, and does not refresh OpenAI Cache entries. It simply replays saved X-derived run evidence. Saved images and videos can still load from X CDNs; Offline is a local source-state guarantee, not a complete network-disconnection guarantee.
 
 This keeps Offline useful for UI development and comparison even when the same result has already been shown before.
 
@@ -61,7 +68,7 @@ OpenAI Cache entries are keyed by:
 
 - `operation`: `scoring` or `translation`.
 - `model`: the requested OpenAI model for that operation.
-- `promptVersion`: for example `scoring-v2` or `translation-v2`.
+- `promptVersion`: for example `scoring-v3` or `translation-v2`.
 - `contentFingerprint`: a hash of source content that affects the OpenAI output.
 
 The content fingerprint includes stable source text, author identity, created time, links, and referenced-post content. It intentionally excludes engagement metrics because those are recalculated locally every Online Pulse.

@@ -412,8 +412,8 @@ npm run test:coverage
 ## Already Completed
 
 - Phase 1 refactor closeout: `npm run refactor:check-baseline`, 225-sample Original Evidence Cache, strict Display Oracle, and Visual Review Pack passed on 2026-06-18.
-- CI baseline: GitHub Actions runs environment check, unit tests, and native coverage on push and pull request.
-- Refactor guard: `npm run refactor:check-baseline` runs environment check, unit tests, API smoke, UI smoke, and X display replay rendering.
+- CI baseline: GitHub Actions runs environment check, strict type-checking, the credential-shape secret backstop, isolated HTTP entry/security/shutdown smoke, unit tests, and native coverage on push and pull request.
+- Refactor guard: `npm run refactor:check-baseline` uses per-step deadlines and runs environment check, type-checking, isolated HTTP entry smoke, unit tests, API smoke, UI smoke, and X display replay rendering.
 - Refresh job boundary: in-memory Pulse job state moved to `src/server/refreshJobs.ts` with unit coverage.
 - Reader format helpers: browser-side formatting and HTML escaping helpers moved to `public/reader/format.js`, keeping `public/app.js` focused one step closer to app coordination and X-like rendering.
 - Reader link rules: X-like link normalization, quote/media/preview treatment, and hidden-link text cleanup moved to `public/reader/linkRules.js` with unit coverage.

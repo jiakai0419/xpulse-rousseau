@@ -78,6 +78,7 @@ test("renderQuotedPost renders a placeholder when only the quoted status link is
     post({
       text: "Quote https://t.co/quote",
       referencedPostType: "quoted",
+      referencedPostId: "123",
       links: [
         {
           url: "https://t.co/quote",
@@ -89,7 +90,8 @@ test("renderQuotedPost renders a placeholder when only the quoted status link is
   );
 
   assert.match(html, /quote-card-placeholder/);
-  assert.match(html, /data-quote-url="https:\/\/x\.com\/source\/status\/123\?x=&lt;bad&gt;"/);
+  assert.match(html, /href="https:\/\/x\.com\/source\/status\/123\?x=&lt;bad&gt;"/);
+  assert.match(html, /target="_blank" rel="noreferrer"/);
   assert.match(html, /Quoted post/);
   assert.match(html, /Open on X/);
   assert.match(html, /x\.com\/source\/status\/123/);
@@ -131,7 +133,9 @@ test("renderQuotedPost renders quoted post body, author, media, and escaped fiel
   assert.deepEqual(calls, ["quote"]);
   assert.deepEqual(linkCalls, ["quote"]);
   assert.match(html, /quote-card quote-card-has-media/);
-  assert.match(html, /data-quote-url="https:\/\/x\.com\/quoted\/status\/1\?x=&lt;bad&gt;"/);
+  assert.match(html, /class="quote-open-link" href="https:\/\/x\.com\/quoted\/status\/1\?x=&lt;bad&gt;"/);
+  assert.doesNotMatch(html, /role="link"/);
+  assert.doesNotMatch(html, /tabindex="0"/);
   assert.match(html, /src="https:\/\/img\.example\/q\.png"/);
   assert.match(html, /&lt;Quoted&gt;/);
   assert.match(html, /@quoted&lt;script&gt;/);

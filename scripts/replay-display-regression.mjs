@@ -6,7 +6,10 @@ import { defaultRequiredRenderBuckets, runCoverage } from "./render-buckets.mjs"
 const sourceStorePath = process.env.REPLAY_DISPLAY_RUN_STORE || ".data/runs.json";
 const maxRuns = positiveInt(process.env.REPLAY_DISPLAY_MAX_RUNS, 8);
 const browserSmokeAttempts = positiveInt(process.env.REPLAY_DISPLAY_BROWSER_SMOKE_ATTEMPTS, 2);
-const portBase = positiveInt(process.env.REPLAY_DISPLAY_PORT_BASE, 3400);
+const portBase = process.env.REPLAY_DISPLAY_PORT_BASE
+  ? positiveInt(process.env.REPLAY_DISPLAY_PORT_BASE, 3400)
+  : undefined;
+const browserSmokeTimeoutMs = positiveInt(process.env.REPLAY_DISPLAY_BROWSER_SMOKE_TIMEOUT_MS, 150_000);
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outputDir = process.env.REPLAY_DISPLAY_DIR || `.data/render-regression/replay-display-${timestamp}`;
 const requiredBuckets = (process.env.REPLAY_DISPLAY_REQUIRED_BUCKETS ?? defaultRequiredRenderBuckets.join(","))
@@ -120,13 +123,15 @@ function runBrowserSmoke(run, index, screenshotPath) {
       ...process.env,
       BROWSER_SMOKE_RUN_STORE: sourceStorePath,
       BROWSER_SMOKE_RUN_ID: run.id,
-      BROWSER_SMOKE_PORT: String(portBase + index + (attempt - 1) * maxRuns),
       BROWSER_SMOKE_SCREENSHOT: screenshotPath,
+      ...(portBase ? { BROWSER_SMOKE_PORT: String(portBase + index + (attempt - 1) * maxRuns) } : {}),
     };
     const result = spawnSync(process.execPath, ["scripts/browser-smoke.mjs"], {
       cwd: process.cwd(),
       env,
       encoding: "utf8",
+      timeout: browserSmokeTimeoutMs,
+      killSignal: "SIGTERM",
     });
     lastResult = result;
 

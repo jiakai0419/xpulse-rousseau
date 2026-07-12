@@ -1,12 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatSignalScore, metricIcon, renderMetricItem, renderMetrics, renderSignal } from "../../public/reader/actions.js";
+import { formatSignalScore, metricIcon, renderMetricItem, renderMetrics, renderSignal, signalTotalScale } from "../../public/reader/actions.js";
 
-test("formatSignalScore keeps Signal totals on the 0-10 display scale", () => {
-  assert.equal(formatSignalScore(7.234), "7.2");
+test("formatSignalScore uses the current explicit 0-100 total contract without guessing", () => {
+  assert.equal(formatSignalScore(7.234), "0.7");
+  assert.equal(formatSignalScore(10), "1.0");
   assert.equal(formatSignalScore(84), "8.4");
+  assert.equal(formatSignalScore(7.234, 10), "7.2");
   assert.equal(formatSignalScore(-1), "0.0");
   assert.equal(formatSignalScore(Number.NaN), "0.0");
+});
+
+test("signalTotalScale accepts only explicitly declared legacy 0-10 totals", () => {
+  assert.equal(signalTotalScale({ total: 8 }), 100);
+  assert.equal(signalTotalScale({ total: 8, totalScale: 10 }), 10);
+  assert.equal(signalTotalScale({ total: 8, format: { totalScale: "0-10" } }), 10);
+  assert.equal(signalTotalScale({ total: 80, scale: "0-100" }), 100);
 });
 
 test("metricIcon renders stable metric SVG shell", () => {
@@ -66,4 +75,9 @@ test("renderSignal renders total score, localized dimensions, and escaped reason
   assert.match(html, /信息密度/);
   assert.match(html, /Important &lt;now&gt;/);
   assert.match(html, /<div class="signal-body" hidden>/);
+});
+
+test("renderSignal treats low unmarked totals as current 0-100 values", () => {
+  assert.match(renderSignal({ total: 8, dimensions: [] }), /Signal: 0\.8 out of 10/);
+  assert.match(renderSignal({ total: 8, totalScale: 10, dimensions: [] }), /Signal: 8\.0 out of 10/);
 });

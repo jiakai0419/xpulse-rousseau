@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import type { PostLinkPreview } from "../../domain/tweet.ts";
+import { readPrivateJsonFile, updatePrivateJsonFile } from "../storage/privateJsonFile.ts";
 
 export type LinkPreviewCacheRecord = {
   key: string;
@@ -63,29 +62,21 @@ export class FileLinkPreviewCacheRepository implements LinkPreviewCacheRepositor
   }
 
   async set(record: LinkPreviewCacheRecord): Promise<void> {
-    const store = await this.readStore();
-    const index = store.records.findIndex((item) => item.key === record.key);
+    await updatePrivateJsonFile(this.filePath, () => ({ records: [] }), (store: LinkPreviewCacheStore) => {
+      const records = [...store.records];
+      const index = records.findIndex((item) => item.key === record.key);
 
-    if (index === -1) {
-      store.records.unshift(record);
-    } else {
-      store.records[index] = record;
-    }
+      if (index === -1) {
+        records.unshift(record);
+      } else {
+        records[index] = record;
+      }
 
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, JSON.stringify({ records: store.records.slice(0, 5000) }, null, 2), "utf8");
+      return { records: records.slice(0, 5000) };
+    });
   }
 
   private async readStore(): Promise<LinkPreviewCacheStore> {
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as LinkPreviewCacheStore;
-    } catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-        return { records: [] };
-      }
-
-      throw error;
-    }
+    return readPrivateJsonFile(this.filePath, () => ({ records: [] }));
   }
 }
