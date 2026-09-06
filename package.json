@@ -27,7 +27,7 @@
     "x-display:validate-diff-rules": "node scripts/display-rule-ledger.mjs"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.4.1",
     "playwright": "^1.60.0",
     "typescript": "^7.0.2"
   }
